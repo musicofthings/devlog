@@ -117,8 +117,14 @@ devlog publish                  # uses publish_mode from config: auto | pr | man
 devlog publish --date 2026-07-20 --force
 ```
 
-Enable GitHub Pages: repo Settings → Pages → Source: **GitHub Actions**
-(workflow: `.github/workflows/pages.yml`).
+Enable GitHub Pages: repo **Settings → Pages → Source: GitHub Actions**
+(workflow: `.github/workflows/pages.yml` uploads `docs/` as the site root).
+
+Public URLs after deploy:
+
+- Landing: https://musicofthings.github.io/devlog/
+- Log feed: https://musicofthings.github.io/devlog/log/
+- Day post: https://musicofthings.github.io/devlog/log/YYYY-MM-DD.html
 
 ## Manual acceptance
 

@@ -1,10 +1,15 @@
 name: Deploy GitHub Pages
 
+# Publishes the contents of docs/ as the site root for
+# https://musicofthings.github.io/devlog/ (so /log/ is correct, not /docs/log/).
+# Repo Settings → Pages → Source must be "GitHub Actions".
+
 on:
   push:
     branches: [main]
     paths:
       - "docs/**"
+      - "posts/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -26,6 +31,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify docs site root
+        run: |
+          set -euo pipefail
+          test -f docs/index.html
+          test -f docs/.nojekyll
+          test -f docs/log/index.html
+          echo "Site root files OK:"
+          find docs -maxdepth 2 -type f | sort | head -50
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
