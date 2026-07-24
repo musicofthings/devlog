@@ -100,15 +100,36 @@ python -m evals.run --live   # requires ANTHROPIC_API_KEY
 
 Also covered by pytest via `tests/test_evals.py`.
 
+## Publish (Phase 3)
+
+Initialize config (writes `%USERPROFILE%\.config\devlog\config.toml`):
+
+```bash
+devlog init --defaults          # non-interactive
+devlog init                     # prompts; can register Task Scheduler
+```
+
+Publish yesterday's post into `posts/` + rebuild `docs/log/`:
+
+```bash
+devlog publish --dry-run
+devlog publish                  # uses publish_mode from config: auto | pr | manual
+devlog publish --date 2026-07-20 --force
+```
+
+Enable GitHub Pages: repo Settings → Pages → Source: **GitHub Actions**
+(workflow: `.github/workflows/pages.yml`).
+
 ## Manual acceptance
 
 1. `python main.py --date 2026-07-20 --dry-run --verbose` (or another day with real activity).
 2. Confirm Codex paths use real `cwd` and Cursor paths decode from `projects/` folder names.
 3. Confirm a multi-tool day produces one merged post with distinct sources in digests (`--verbose`).
+4. `devlog init --defaults` then `devlog publish --date <fixture-day> --dry-run`.
 
 ## Next
 
-- Publishing integrations beyond the local markdown file.
+- Recruiter-facing portfolio polish and custom domain.
 - Optional Cursor SQLite / Composer history (deferred; agent transcripts only for now).
 
 See `PRD_TRD.md` and `docs/superpowers/` for full spec and design.
