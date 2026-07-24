@@ -13,6 +13,7 @@ Claude Code JSONL format reference (as of mid-2026):
 """
 
 from __future__ import annotations
+
 import json
 import posixpath
 from datetime import datetime
@@ -79,7 +80,7 @@ def parse_session_file(path: Path) -> RawSession | None:
     cwd: str | None = None
     files_seen: list[str] = []
 
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -135,18 +136,21 @@ def parse_session_file(path: Path) -> RawSession | None:
                 tool_blocks: list[dict] = []
                 if isinstance(content, list):
                     tool_blocks = [
-                        block for block in content
+                        block
+                        for block in content
                         if isinstance(block, dict) and block.get("type") == "tool_use"
                     ]
 
                 if not tool_blocks:
                     if tokens_in or tokens_out or tokens_cache_read:
-                        events.append(SessionEvent(
-                            timestamp=ts,
-                            tokens_in=tokens_in,
-                            tokens_out=tokens_out,
-                            tokens_cache_read=tokens_cache_read,
-                        ))
+                        events.append(
+                            SessionEvent(
+                                timestamp=ts,
+                                tokens_in=tokens_in,
+                                tokens_out=tokens_out,
+                                tokens_cache_read=tokens_cache_read,
+                            )
+                        )
                 else:
                     # Token usage is reported once per assistant turn, not per
                     # tool call, so attach it only to the first tool event to
@@ -158,15 +162,17 @@ def parse_session_file(path: Path) -> RawSession | None:
                         cmd = tool_input.get("command")
                         if fp:
                             files_seen.append(fp)
-                        events.append(SessionEvent(
-                            timestamp=ts,
-                            tool_name=name,
-                            file_path=fp,
-                            bash_command=cmd,
-                            tokens_in=tokens_in if i == 0 else 0,
-                            tokens_out=tokens_out if i == 0 else 0,
-                            tokens_cache_read=tokens_cache_read if i == 0 else 0,
-                        ))
+                        events.append(
+                            SessionEvent(
+                                timestamp=ts,
+                                tool_name=name,
+                                file_path=fp,
+                                bash_command=cmd,
+                                tokens_in=tokens_in if i == 0 else 0,
+                                tokens_out=tokens_out if i == 0 else 0,
+                                tokens_cache_read=tokens_cache_read if i == 0 else 0,
+                            )
+                        )
 
     if not timestamps:
         return None

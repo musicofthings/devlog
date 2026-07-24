@@ -1,10 +1,7 @@
 import json
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from devlog.sources.claude_code import ClaudeCodeParser, resolve_project_path
-from devlog.digest import slice_for_date
 
 FIXTURES = Path(__file__).resolve().parents[1] / "sample_data" / "claude_code"
 
@@ -24,7 +21,13 @@ def test_cwd_preferred_over_folder_decode(tmp_path: Path):
             "type": "assistant",
             "timestamp": "2026-07-22T10:01:00Z",
             "message": {
-                "content": [{"type": "tool_use", "name": "Edit", "input": {"file_path": "/Users/dev/code/variant-caller/main.py"}}],
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "Edit",
+                        "input": {"file_path": "/Users/dev/code/variant-caller/main.py"},
+                    }
+                ],
                 "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 0},
             },
         },
@@ -40,7 +43,7 @@ def test_malformed_line_skipped(tmp_path: Path):
     proj.mkdir(parents=True)
     (proj / "s.jsonl").write_text(
         '{"type":"user","timestamp":"2026-07-22T10:00:00Z","message":{"content":"ok"}}\n'
-        'NOT JSON\n'
+        "NOT JSON\n"
         '{"type":"assistant","timestamp":"2026-07-22T10:01:00Z","message":{"content":[],"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0}}}\n',
         encoding="utf-8",
     )
@@ -50,11 +53,14 @@ def test_malformed_line_skipped(tmp_path: Path):
 
 
 def test_resolve_path_fallback_order():
-    assert resolve_project_path(
-        cwd="/real/variant-caller",
-        files=["/real/variant-caller/a.py"],
-        folder_name="-Users-dev-code-variant-caller",
-    ) == "/real/variant-caller"
+    assert (
+        resolve_project_path(
+            cwd="/real/variant-caller",
+            files=["/real/variant-caller/a.py"],
+            folder_name="-Users-dev-code-variant-caller",
+        )
+        == "/real/variant-caller"
+    )
 
 
 def test_resolve_path_prefers_folder_decode_over_nested_common_root():
@@ -62,21 +68,27 @@ def test_resolve_path_prefers_folder_decode_over_nested_common_root():
     # a subdirectory (parsers/) of the real project root. The common root of
     # the file paths is therefore a strict subdirectory of the folder-decoded
     # path and would be a worse (too-deep) answer than the decode.
-    assert resolve_project_path(
-        cwd=None,
-        files=[
-            "/Users/dev/code/variantgpt/parsers/vcf_parser.py",
-            "/Users/dev/code/variantgpt/parsers/bed_parser.py",
-        ],
-        folder_name="-Users-dev-code-variantgpt",
-    ) == "/Users/dev/code/variantgpt"
+    assert (
+        resolve_project_path(
+            cwd=None,
+            files=[
+                "/Users/dev/code/variantgpt/parsers/vcf_parser.py",
+                "/Users/dev/code/variantgpt/parsers/bed_parser.py",
+            ],
+            folder_name="-Users-dev-code-variantgpt",
+        )
+        == "/Users/dev/code/variantgpt"
+    )
 
 
 def test_resolve_path_uses_common_root_when_ancestor_of_folder_decode():
     # Common root of touched files is *shallower than or equal to* the
     # folder decode (not a strict subdirectory), so it's still safe to use.
-    assert resolve_project_path(
-        cwd=None,
-        files=["/Users/dev/code/variantgpt/main.py", "/Users/dev/code/variantgpt/utils.py"],
-        folder_name="-Users-dev-code-variantgpt",
-    ) == "/Users/dev/code/variantgpt"
+    assert (
+        resolve_project_path(
+            cwd=None,
+            files=["/Users/dev/code/variantgpt/main.py", "/Users/dev/code/variantgpt/utils.py"],
+            folder_name="-Users-dev-code-variantgpt",
+        )
+        == "/Users/dev/code/variantgpt"
+    )

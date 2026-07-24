@@ -4,12 +4,25 @@ Turns local AI coding session history into one short, factual, first-person
 "build log" post per day. Phase 1 ships a Claude Code source plugin; Codex and
 Cursor are registered stubs for phase 2.
 
+**Repo:** https://github.com/musicofthings/devlog
+
+## Results (verified locally)
+
+| Suite | Result |
+|-------|--------|
+| `pytest` | **27 passed** |
+| Offline evals (`python -m evals.run`) | **5/5 passed** |
+| Live evals (`python -m evals.run --live`) | **5/5 passed** (compact digest + token caps) |
+
+Token-efficient Claude path: compact digests (~37% shorter on sample day),
+`max_tokens=120`, empty-day API skip, 5-sentence output clamp.
+
 ## Layout
 
 ```
 devlog/
   cli.py              # argparse entrypoint
-  digest.py           # calendar-day slicing (local timezone)
+  digest.py           # calendar-day slicing (local timezone) + compact digests
   models.py           # RawSession, SessionDigest
   summarize.py        # digest → post (Claude API or template fallback)
   sources/
@@ -17,9 +30,11 @@ devlog/
     claude_code.py    # JSONL parser (FR1–FR4)
     codex.py          # stub
     cursor.py         # stub
+evals/                # acceptance-style offline/live eval harness
 main.py               # thin wrapper → devlog.cli
 sample_data/claude_code/   # synthetic JSONL for offline tests
 tests/                # pytest suite
+docs/                 # GitHub Pages landing
 ```
 
 ## Setup
@@ -66,7 +81,20 @@ Writes `devlog-YYYY-MM-DD.md` unless `--dry-run` is set.
 
 ```bash
 python -m pytest
+# expected: 27 passed
 ```
+
+## Evals
+
+Phase 1 acceptance-style evals against `sample_data/` (offline template by default):
+
+```bash
+python -m evals.run          # expected: 5/5
+python -m evals.run --json
+python -m evals.run --live   # requires ANTHROPIC_API_KEY; expected: 5/5
+```
+
+Also covered by pytest via `tests/test_evals.py`.
 
 ## Manual acceptance (real ~/.claude)
 
@@ -79,6 +107,6 @@ Before relying on output in production:
 ## Next
 
 - Flesh out Codex and Cursor source plugins (phase 2).
-- GitHub repo landing page and publish step (deferred).
+- Publishing integrations beyond the local markdown file.
 
 See `PRD_TRD.md` and `docs/superpowers/` for full spec and design.

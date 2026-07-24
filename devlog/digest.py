@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from datetime import date, datetime, time, timedelta, tzinfo
 
 from devlog.models import RawSession, SessionDigest
@@ -57,26 +58,78 @@ def slice_for_date(
     return sorted(out, key=lambda s: s.start_time)
 
 
-def build_raw_digest(sessions: list[SessionDigest]) -> str:
-    """Render a plain-text summary of a day's session digests."""
+def _basename(path: str) -> str:
+    return path.replace("\\", "/").rstrip("/").split("/")[-1] or path
+
+
+def _clip(text: str, limit: int) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) -> str:
+    """Render a plain-text summary of a day's session digests.
+
+    compact=True produces a shorter digest for LLM prompts (basenames, capped
+    lists, clipped strings) to reduce input tokens without dropping the signal.
+    """
     if not sessions:
         return "No coding activity recorded today."
+
+    max_tasks = 2 if compact else None
+    max_files = 5 if compact else None
+    max_cmds = 3 if compact else None
+    task_len = 120 if compact else None
+    cmd_len = 80 if compact else None
+
     lines: list[str] = []
     total_minutes = sum(s.duration_minutes for s in sessions)
-    projects = sorted({s.project_path for s in sessions})
-    lines.append(
-        f"Total active time: {total_minutes:.0f} minutes across {len(sessions)} session(s)."
-    )
-    lines.append(f"Projects touched: {', '.join(projects)}")
+    if compact:
+        projects = sorted({_basename(s.project_path) for s in sessions})
+        lines.append(f"{total_minutes:.0f} min, {len(sessions)} session(s): {', '.join(projects)}")
+    else:
+        projects = sorted({s.project_path for s in sessions})
+        lines.append(
+            f"Total active time: {total_minutes:.0f} minutes across {len(sessions)} session(s)."
+        )
+        lines.append(f"Projects touched: {', '.join(projects)}")
+
     for s in sessions:
-        lines.append(f"\n[Project: {s.project_path}, {s.duration_minutes:.0f} min, source={s.source}]")
+        label = _basename(s.project_path) if compact else s.project_path
+        if compact:
+            lines.append(f"\n[{label}, {s.duration_minutes:.0f}m]")
+        else:
+            lines.append(
+                f"\n[Project: {s.project_path}, {s.duration_minutes:.0f} min, source={s.source}]"
+            )
+
         if s.user_messages:
-            lines.append("  Tasks requested: " + " | ".join(s.user_messages))
+            tasks = s.user_messages[:max_tasks] if max_tasks is not None else s.user_messages
+            if task_len is not None:
+                tasks = [_clip(t, task_len) for t in tasks]
+            task_prefix = "  Tasks: " if compact else "  Tasks requested: "
+            lines.append(task_prefix + " | ".join(tasks))
+
         if s.tool_calls:
             tool_summary = ", ".join(f"{k} x{v}" for k, v in s.tool_calls.items())
-            lines.append(f"  Tools used: {tool_summary}")
+            lines.append(f"  Tools: {tool_summary}" if compact else f"  Tools used: {tool_summary}")
+
         if s.files_touched:
-            lines.append(f"  Files touched: {', '.join(sorted(s.files_touched))}")
+            files = sorted(s.files_touched)
+            if max_files is not None:
+                files = files[:max_files]
+            if compact:
+                files = [_basename(f) for f in files]
+            prefix = "  Files: " if compact else "  Files touched: "
+            lines.append(prefix + ", ".join(files))
+
         if s.bash_commands:
-            lines.append(f"  Commands run: {', '.join(s.bash_commands)}")
+            cmds = s.bash_commands[:max_cmds] if max_cmds is not None else s.bash_commands
+            if cmd_len is not None:
+                cmds = [_clip(c, cmd_len) for c in cmds]
+            prefix = "  Cmds: " if compact else "  Commands run: "
+            lines.append(prefix + ", ".join(cmds))
+
     return "\n".join(lines)

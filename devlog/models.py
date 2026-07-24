@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
+
 
 @dataclass
 class SessionEvent:
@@ -13,6 +15,7 @@ class SessionEvent:
     tokens_out: int = 0
     tokens_cache_read: int = 0
 
+
 @dataclass
 class RawSession:
     session_id: str
@@ -21,6 +24,7 @@ class RawSession:
     start_time: datetime
     end_time: datetime
     events: list[SessionEvent] = field(default_factory=list)
+
 
 @dataclass
 class SessionDigest:

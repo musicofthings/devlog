@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 from devlog.models import SessionDigest
@@ -10,8 +10,8 @@ def _sess() -> SessionDigest:
         session_id="s",
         project_path="/Users/dev/code/variantgpt",
         source="claude_code",
-        start_time=datetime(2026, 7, 22, 9, 0, tzinfo=timezone.utc),
-        end_time=datetime(2026, 7, 22, 9, 20, tzinfo=timezone.utc),
+        start_time=datetime(2026, 7, 22, 9, 0, tzinfo=UTC),
+        end_time=datetime(2026, 7, 22, 9, 20, tzinfo=UTC),
         user_messages=["Refactor the VCF parser"],
         tool_calls={"Edit": 2, "Bash": 1},
         files_touched={"/Users/dev/code/variantgpt/parsers/vcf_parser.py"},
@@ -33,7 +33,11 @@ def test_generate_post_falls_back_without_key(monkeypatch):
 
 def test_generate_post_uses_claude_when_key_set(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    fake = "I spent time on variantgpt refactoring the VCF parser to stream. Edited the parser module and ran pytest. Also sketched a progress bar for large files."
+    fake = (
+        "I spent time on variantgpt refactoring the VCF parser to stream. "
+        "Edited the parser module and ran pytest. "
+        "Also sketched a progress bar for large files."
+    )
     with patch("devlog.summarize.summarize_with_claude", return_value=fake) as mocked:
         text = generate_post([_sess()])
     mocked.assert_called_once()
@@ -47,3 +51,28 @@ def test_claude_failure_falls_back(monkeypatch):
     with patch("devlog.summarize.summarize_with_claude", side_effect=RuntimeError("boom")):
         text = generate_post([_sess()])
     assert "variantgpt" in text
+
+
+def test_empty_day_skips_claude_api(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    with patch("devlog.summarize.summarize_with_claude") as mocked:
+        text = generate_post([])
+    mocked.assert_not_called()
+    assert text == "No coding activity logged today."
+
+
+def test_generate_post_sends_compact_digest(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    with patch("devlog.summarize.summarize_with_claude", return_value="ok.") as mocked:
+        generate_post([_sess()])
+    digest_arg = mocked.call_args.args[0]
+    assert "source=" not in digest_arg
+    assert "variantgpt" in digest_arg
+    assert "Total active time:" not in digest_arg
+
+
+def test_clamp_sentences_caps_long_posts():
+    from devlog.summarize import _clamp_sentences
+
+    long = "One. Two. Three. Four. Five. Six. Seven."
+    assert _clamp_sentences(long, max_sentences=5) == "One. Two. Three. Four. Five."

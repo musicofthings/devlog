@@ -61,6 +61,7 @@
 # tests/test_scaffold.py
 def test_package_imports():
     import devlog
+
     assert devlog is not None
 ```
 
@@ -143,6 +144,7 @@ Run: `git status` — if not a repo, `git init` only. Do not commit yet.
 from datetime import datetime, timezone
 from devlog.models import SessionEvent, RawSession, SessionDigest
 
+
 def test_session_digest_duration_minutes():
     start = datetime(2026, 7, 22, 9, 0, tzinfo=timezone.utc)
     end = datetime(2026, 7, 22, 9, 30, tzinfo=timezone.utc)
@@ -154,6 +156,7 @@ def test_session_digest_duration_minutes():
         end_time=end,
     )
     assert d.duration_minutes == 30.0
+
 
 def test_raw_session_holds_events():
     ts = datetime(2026, 7, 22, 9, 0, tzinfo=timezone.utc)
@@ -183,6 +186,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+
 @dataclass
 class SessionEvent:
     timestamp: datetime
@@ -194,6 +198,7 @@ class SessionEvent:
     tokens_out: int = 0
     tokens_cache_read: int = 0
 
+
 @dataclass
 class RawSession:
     session_id: str
@@ -202,6 +207,7 @@ class RawSession:
     start_time: datetime
     end_time: datetime
     events: list[SessionEvent] = field(default_factory=list)
+
 
 @dataclass
 class SessionDigest:
@@ -256,8 +262,10 @@ from devlog.digest import slice_for_date, build_raw_digest
 
 IST = ZoneInfo("Asia/Kolkata")
 
+
 def _ev(ts: datetime, **kwargs) -> SessionEvent:
     return SessionEvent(timestamp=ts, **kwargs)
+
 
 def test_midnight_spanning_session_splits_without_double_count():
     # Session 23:30 IST day1 -> 00:30 IST day2
@@ -272,7 +280,13 @@ def test_midnight_spanning_session_splits_without_double_count():
         end_time=end,
         events=[
             _ev(start, user_message="before midnight"),
-            _ev(start + timedelta(minutes=5), tool_name="Edit", file_path="/proj/a.py", tokens_in=100, tokens_out=50),
+            _ev(
+                start + timedelta(minutes=5),
+                tool_name="Edit",
+                file_path="/proj/a.py",
+                tokens_in=100,
+                tokens_out=50,
+            ),
             _ev(mid, user_message="after midnight"),
             _ev(end, tool_name="Bash", bash_command="pytest", tokens_in=40, tokens_out=20),
         ],
@@ -286,6 +300,7 @@ def test_midnight_spanning_session_splits_without_double_count():
     assert day2[0].tokens_in == 40
     assert abs(day1[0].duration_minutes + day2[0].duration_minutes - 60.0) < 0.01
 
+
 def test_no_overlap_returns_empty():
     ts = datetime(2026, 7, 21, 12, 0, tzinfo=IST)
     raw = RawSession(
@@ -298,10 +313,12 @@ def test_no_overlap_returns_empty():
     )
     assert slice_for_date([raw], date(2026, 7, 22), IST) == []
 
+
 def test_build_raw_digest_lists_projects():
     start = datetime(2026, 7, 22, 9, 0, tzinfo=timezone.utc)
     end = datetime(2026, 7, 22, 9, 15, tzinfo=timezone.utc)
     from devlog.models import SessionDigest
+
     d = SessionDigest(
         session_id="s",
         project_path="/Users/dev/code/variantgpt",
@@ -391,7 +408,9 @@ def build_raw_digest(sessions: list[SessionDigest]) -> str:
     )
     lines.append(f"Projects touched: {', '.join(projects)}")
     for s in sessions:
-        lines.append(f"\n[Project: {s.project_path}, {s.duration_minutes:.0f} min, source={s.source}]")
+        lines.append(
+            f"\n[Project: {s.project_path}, {s.duration_minutes:.0f} min, source={s.source}]"
+        )
         if s.user_messages:
             lines.append("  Tasks requested: " + " | ".join(s.user_messages))
         if s.tool_calls:
@@ -435,13 +454,16 @@ from pathlib import Path
 import pytest
 from devlog.sources.base import get_sources, REGISTRY
 
+
 def test_stubs_registered():
     assert "codex" in REGISTRY
     assert "cursor" in REGISTRY
 
+
 def test_stubs_return_empty(tmp_path: Path):
     assert get_sources(["codex"])[0].iter_sessions(tmp_path) == []
     assert get_sources(["cursor"])[0].iter_sessions(tmp_path) == []
+
 
 def test_unknown_source_raises():
     with pytest.raises(KeyError) as exc:
@@ -465,15 +487,20 @@ from typing import Protocol
 
 from devlog.models import RawSession
 
+
 class SourceParser(Protocol):
     name: str
+
     def iter_sessions(self, root: Path) -> list[RawSession]: ...
 
+
 REGISTRY: dict[str, SourceParser] = {}
+
 
 def register(parser: SourceParser) -> SourceParser:
     REGISTRY[parser.name] = parser
     return parser
+
 
 def get_sources(names: list[str]) -> list[SourceParser]:
     missing = [n for n in names if n not in REGISTRY]
@@ -490,10 +517,13 @@ from pathlib import Path
 from devlog.models import RawSession
 from devlog.sources.base import register
 
+
 class CodexParser:
     name = "codex"
+
     def iter_sessions(self, root: Path) -> list[RawSession]:
         return []
+
 
 register(CodexParser())
 ```
@@ -505,10 +535,13 @@ from pathlib import Path
 from devlog.models import RawSession
 from devlog.sources.base import register
 
+
 class CursorParser:
     name = "cursor"
+
     def iter_sessions(self, root: Path) -> list[RawSession]:
         return []
+
 
 register(CursorParser())
 ```
@@ -568,6 +601,7 @@ from devlog.digest import slice_for_date
 
 FIXTURES = Path(__file__).resolve().parents[1] / "sample_data" / "claude_code"
 
+
 def test_cwd_preferred_over_folder_decode(tmp_path: Path):
     proj = tmp_path / "projects" / "-Users-dev-code-variant-caller"
     proj.mkdir(parents=True)
@@ -583,7 +617,13 @@ def test_cwd_preferred_over_folder_decode(tmp_path: Path):
             "type": "assistant",
             "timestamp": "2026-07-22T10:01:00Z",
             "message": {
-                "content": [{"type": "tool_use", "name": "Edit", "input": {"file_path": "/Users/dev/code/variant-caller/main.py"}}],
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "Edit",
+                        "input": {"file_path": "/Users/dev/code/variant-caller/main.py"},
+                    }
+                ],
                 "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 0},
             },
         },
@@ -593,12 +633,13 @@ def test_cwd_preferred_over_folder_decode(tmp_path: Path):
     assert len(raw) == 1
     assert raw[0].project_path == "/Users/dev/code/variant-caller"
 
+
 def test_malformed_line_skipped(tmp_path: Path):
     proj = tmp_path / "projects" / "-Users-dev-code-x"
     proj.mkdir(parents=True)
     (proj / "s.jsonl").write_text(
         '{"type":"user","timestamp":"2026-07-22T10:00:00Z","message":{"content":"ok"}}\n'
-        'NOT JSON\n'
+        "NOT JSON\n"
         '{"type":"assistant","timestamp":"2026-07-22T10:01:00Z","message":{"content":[],"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0}}}\n',
         encoding="utf-8",
     )
@@ -606,12 +647,16 @@ def test_malformed_line_skipped(tmp_path: Path):
     assert len(raw) == 1
     assert raw[0].events[0].user_message == "ok"
 
+
 def test_resolve_path_fallback_order():
-    assert resolve_project_path(
-        cwd="/real/variant-caller",
-        files=["/real/variant-caller/a.py"],
-        folder_name="-Users-dev-code-variant-caller",
-    ) == "/real/variant-caller"
+    assert (
+        resolve_project_path(
+            cwd="/real/variant-caller",
+            files=["/real/variant-caller/a.py"],
+            folder_name="-Users-dev-code-variant-caller",
+        )
+        == "/real/variant-caller"
+    )
 ```
 
 - [ ] **Step 3: Run tests — expect fail**
@@ -636,8 +681,10 @@ def decode_project_path(encoded_dir_name: str) -> str: ...
 def resolve_project_path(cwd: str | None, files: list[str], folder_name: str) -> str: ...
 def parse_session_file(path: Path) -> RawSession | None: ...
 
+
 class ClaudeCodeParser:
     name = "claude_code"
+
     def iter_sessions(self, root: Path) -> list[RawSession]: ...
 ```
 
@@ -683,6 +730,7 @@ from unittest.mock import MagicMock, patch
 from devlog.models import SessionDigest
 from devlog.summarize import generate_post, summarize_with_template
 
+
 def _sess() -> SessionDigest:
     return SessionDigest(
         session_id="s",
@@ -695,16 +743,19 @@ def _sess() -> SessionDigest:
         files_touched={"/Users/dev/code/variantgpt/parsers/vcf_parser.py"},
     )
 
+
 def test_template_is_stable_and_factual():
     text = summarize_with_template([_sess()])
     assert "variantgpt" in text
     assert "Refactor the VCF parser" in text
     assert "!" not in text
 
+
 def test_generate_post_falls_back_without_key(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     text = generate_post([_sess()])
     assert "variantgpt" in text
+
 
 def test_generate_post_uses_claude_when_key_set(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
@@ -715,6 +766,7 @@ def test_generate_post_uses_claude_when_key_set(monkeypatch):
     assert text == fake
     assert len(text.split()) <= 120
     assert 3 <= text.count(".") <= 5 or 3 <= len([s for s in text.split(".") if s.strip()]) <= 5
+
 
 def test_claude_failure_falls_back(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
@@ -761,30 +813,41 @@ Expected: PASS
 from pathlib import Path
 from devlog.cli import main
 
+
 def test_dry_run_does_not_write(tmp_path: Path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     sample = Path(__file__).resolve().parents[1] / "sample_data" / "claude_code"
-    code = main([
-        "--date", "2026-07-22",
-        "--claude-root", str(sample),
-        "--sample-mode",
-        "--dry-run",
-    ])
+    code = main(
+        [
+            "--date",
+            "2026-07-22",
+            "--claude-root",
+            str(sample),
+            "--sample-mode",
+            "--dry-run",
+        ]
+    )
     assert code == 0
     assert list(tmp_path.glob("devlog-*.md")) == []
     out = capsys.readouterr().out
     assert "Daily post" in out or "variantgpt" in out.lower() or "session" in out.lower()
 
+
 def test_write_creates_file(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     sample = Path(__file__).resolve().parents[1] / "sample_data" / "claude_code"
-    code = main([
-        "--date", "2026-07-22",
-        "--claude-root", str(sample),
-        "--sample-mode",
-    ])
+    code = main(
+        [
+            "--date",
+            "2026-07-22",
+            "--claude-root",
+            str(sample),
+            "--sample-mode",
+        ]
+    )
     assert code == 0
     assert (tmp_path / "devlog-2026-07-22.md").exists()
+
 
 def test_unknown_source_exits_2():
     code = main(["--sources", "nope", "--dry-run", "--date", "2026-07-22"])

@@ -28,7 +28,9 @@ def build_parser() -> argparse.ArgumentParser:
         default="~/.claude",
         help="Root of Claude Code's local data dir",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Print the post but do not write a file")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print the post but do not write a file"
+    )
     parser.add_argument("--verbose", action="store_true", help="Print extra diagnostic information")
     parser.add_argument(
         "--sample-mode",
