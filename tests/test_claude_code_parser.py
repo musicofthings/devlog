@@ -55,3 +55,28 @@ def test_resolve_path_fallback_order():
         files=["/real/variant-caller/a.py"],
         folder_name="-Users-dev-code-variant-caller",
     ) == "/real/variant-caller"
+
+
+def test_resolve_path_prefers_folder_decode_over_nested_common_root():
+    # variantgpt-style: no cwd captured, and every touched file lives inside
+    # a subdirectory (parsers/) of the real project root. The common root of
+    # the file paths is therefore a strict subdirectory of the folder-decoded
+    # path and would be a worse (too-deep) answer than the decode.
+    assert resolve_project_path(
+        cwd=None,
+        files=[
+            "/Users/dev/code/variantgpt/parsers/vcf_parser.py",
+            "/Users/dev/code/variantgpt/parsers/bed_parser.py",
+        ],
+        folder_name="-Users-dev-code-variantgpt",
+    ) == "/Users/dev/code/variantgpt"
+
+
+def test_resolve_path_uses_common_root_when_ancestor_of_folder_decode():
+    # Common root of touched files is *shallower than or equal to* the
+    # folder decode (not a strict subdirectory), so it's still safe to use.
+    assert resolve_project_path(
+        cwd=None,
+        files=["/Users/dev/code/variantgpt/main.py", "/Users/dev/code/variantgpt/utils.py"],
+        folder_name="-Users-dev-code-variantgpt",
+    ) == "/Users/dev/code/variantgpt"

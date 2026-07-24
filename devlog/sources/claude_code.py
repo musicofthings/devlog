@@ -32,22 +32,35 @@ def decode_project_path(encoded_dir_name: str) -> str:
     return "/" + name.replace("-", "/")
 
 
+def _is_ancestor_or_equal(root: str, other: str) -> bool:
+    """True if `root` is an ancestor of (or equal to) `other` (posix paths)."""
+    try:
+        return posixpath.commonpath([root, other]) == posixpath.normpath(root)
+    except ValueError:
+        return False
+
+
 def resolve_project_path(cwd: str | None, files: list[str], folder_name: str) -> str:
     """Resolve a session's project path with priority:
     1. `cwd` seen on a transcript event (authoritative)
-    2. Best-effort common root of touched tool file paths
+    2. Best-effort common root of touched tool file paths -- but only when it
+       is at least as high up the tree as the folder-name decode. Tool calls
+       often only touch a subdirectory of the project (e.g. a `parsers/`
+       package), which would make the common root a strict subdirectory of
+       the real project root and *worse* than the folder decode.
     3. Lossy folder-name decode as last resort
     """
     if cwd:
         return cwd
+    folder_decoded = decode_project_path(folder_name)
     if files:
         try:
             common = posixpath.commonpath([posixpath.dirname(f) for f in files])
         except ValueError:
             common = ""
-        if common:
+        if common and _is_ancestor_or_equal(common, folder_decoded):
             return common
-    return decode_project_path(folder_name)
+    return folder_decoded
 
 
 def _parse_timestamp(ts: str) -> datetime:
