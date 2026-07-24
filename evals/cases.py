@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 
 from devlog.digest import slice_for_date
 from devlog.sources.claude_code import ClaudeCodeParser
+from devlog.sources.codex import CodexParser
+from devlog.sources.cursor import CursorParser
 from devlog.summarize import generate_post, summarize_with_template
 from evals.rubric import (
     EvalResult,
@@ -20,6 +22,8 @@ from evals.rubric import (
 )
 
 SAMPLE_ROOT = Path(__file__).resolve().parents[1] / "sample_data" / "claude_code"
+CODEX_ROOT = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+CURSOR_ROOT = Path(__file__).resolve().parents[1] / "sample_data" / "cursor"
 # Fixture timestamps are UTC; use a fixed TZ so local-machine TZ doesn't flap results.
 EVAL_TZ = ZoneInfo("UTC")
 
@@ -36,6 +40,9 @@ CASES: list[CaseSpec] = [
     CaseSpec("midnight_partition", "span session sliced across 07-22 / 07-23 without double-count"),
     CaseSpec("malformed_tolerated", "malformed JSONL session still parses usable lines"),
     CaseSpec("empty_day", "day with no activity -> empty template, no crash"),
+    CaseSpec("codex_2026_07_20", "Codex rollout cwd + tools grounded in template post"),
+    CaseSpec("cursor_2026_07_20", "Cursor agent-transcript path decode + tools"),
+    CaseSpec("multi_source_2026_07_20", "Codex+Cursor same day merge into one post"),
 ]
 
 
@@ -56,7 +63,6 @@ def run_e2e_2026_07_22_template(*, live: bool = False) -> EvalResult:
         for c in check_style(post, max_words=120):
             result.checks.append(c)
         result.checks.append(check_sentence_range(post, min_s=3, max_s=5))
-        # Compact posts may omit one project; require coverage of the day overall.
         for c in check_groundedness(post, digests):
             result.checks.append(c)
         projects = sorted(
@@ -76,7 +82,7 @@ def run_e2e_2026_07_22_template(*, live: bool = False) -> EvalResult:
         for c in check_groundedness(
             post,
             digests,
-            required_substrings=["variantgpt"],  # helios may decode lossily; variantgpt is stable
+            required_substrings=["variantgpt"],
         ):
             result.checks.append(c)
     return result
@@ -88,7 +94,6 @@ def run_cwd_path_2026_07_23() -> EvalResult:
     result.checks.append(
         check_project_paths(digests, {"/Users/dev/code/variant-caller", "/Users/dev/code/span"})
     )
-    # Must NOT contain the lossy dash-split of variant-caller
     bad = any(d.project_path == "/Users/dev/code/variant/caller" for d in digests)
     result.add("no_lossy_variant_caller", not bad, "lossy path present" if bad else "ok")
     post = summarize_with_template(digests)
@@ -121,7 +126,6 @@ def run_malformed_tolerated() -> EvalResult:
             has_msg,
             "ok" if has_msg else "no user message recovered",
         )
-    # Full day still works
     digests = slice_for_date(raw, date(2026, 7, 22), EVAL_TZ)
     result.add("day_still_produces_digests", len(digests) >= 1, f"n={len(digests)}")
     return result
@@ -138,12 +142,73 @@ def run_empty_day() -> EvalResult:
     return result
 
 
+def run_codex_2026_07_20() -> EvalResult:
+    result = EvalResult("codex_2026_07_20")
+    raw = CodexParser().iter_sessions(CODEX_ROOT)
+    digests = slice_for_date(raw, date(2026, 7, 20), EVAL_TZ)
+    result.add("has_codex_session", len(digests) >= 1, f"n={len(digests)}")
+    result.add(
+        "source_is_codex",
+        all(d.source == "codex" for d in digests),
+        ",".join(sorted({d.source for d in digests})) or "none",
+    )
+    paths = {d.project_path.replace("\\", "/") for d in digests}
+    result.add(
+        "cwd_gurukul",
+        any("gurukul" in p.lower() for p in paths),
+        str(paths),
+    )
+    post = summarize_with_template(digests)
+    for c in check_groundedness(post, digests, required_substrings=["gurukul"]):
+        result.checks.append(c)
+    for c in check_style(post):
+        result.checks.append(c)
+    return result
+
+
+def run_cursor_2026_07_20() -> EvalResult:
+    result = EvalResult("cursor_2026_07_20")
+    raw = CursorParser().iter_sessions(CURSOR_ROOT)
+    digests = slice_for_date(raw, date(2026, 7, 20), EVAL_TZ)
+    result.add("has_cursor_session", len(digests) >= 1, f"n={len(digests)}")
+    result.add(
+        "decoded_devlog_path",
+        any(d.project_path.replace("\\", "/") == "C:/Users/dev/code/devlog" for d in digests),
+        str([d.project_path for d in digests]),
+    )
+    post = summarize_with_template(digests)
+    for c in check_groundedness(post, digests, required_substrings=["devlog"]):
+        result.checks.append(c)
+    for c in check_style(post):
+        result.checks.append(c)
+    return result
+
+
+def run_multi_source_2026_07_20() -> EvalResult:
+    result = EvalResult("multi_source_2026_07_20")
+    raw = CodexParser().iter_sessions(CODEX_ROOT) + CursorParser().iter_sessions(CURSOR_ROOT)
+    digests = slice_for_date(raw, date(2026, 7, 20), EVAL_TZ)
+    sources = {d.source for d in digests}
+    result.add("both_sources", sources == {"codex", "cursor"}, f"sources={sources}")
+    result.add("two_plus_sessions", len(digests) >= 2, f"n={len(digests)}")
+    post = summarize_with_template(digests)
+    result.add("single_post", bool(post.strip()), "empty" if not post.strip() else "ok")
+    for c in check_groundedness(post, digests, required_substrings=["gurukul", "devlog"]):
+        result.checks.append(c)
+    for c in check_style(post):
+        result.checks.append(c)
+    return result
+
+
 RUNNERS = {
     "e2e_2026_07_22_template": lambda live=False: run_e2e_2026_07_22_template(live=live),
     "cwd_path_2026_07_23": lambda live=False: run_cwd_path_2026_07_23(),
     "midnight_partition": lambda live=False: run_midnight_partition(),
     "malformed_tolerated": lambda live=False: run_malformed_tolerated(),
     "empty_day": lambda live=False: run_empty_day(),
+    "codex_2026_07_20": lambda live=False: run_codex_2026_07_20(),
+    "cursor_2026_07_20": lambda live=False: run_cursor_2026_07_20(),
+    "multi_source_2026_07_20": lambda live=False: run_multi_source_2026_07_20(),
 }
 
 

@@ -1,0 +1,5 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Monday, Jul 20, 2026, 3:30 PM (UTC+5:30)</timestamp>\n<user_query>\nAdd a Cursor source parser for agent transcripts\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"I'll implement the Cursor agent-transcript parser."},{"type":"tool_use","name":"Read","input":{"path":"C:\\Users\\dev\\code\\devlog\\devlog\\sources\\cursor.py"}},{"type":"tool_use","name":"Shell","input":{"command":"pytest -q tests/test_cursor_parser.py","working_directory":"C:\\Users\\dev\\code\\devlog"}}]}}
+NOT JSON
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Monday, Jul 20, 2026, 4:00 PM (UTC+5:30)</timestamp>\n<user_query>\nWire multi-root CLI next\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"path":"C:\\Users\\dev\\code\\devlog\\devlog\\cli.py","contents":"# stub"}}]}}

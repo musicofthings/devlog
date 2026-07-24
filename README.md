@@ -1,8 +1,8 @@
-# Daily Dev Log — Phase 1
+# Daily Dev Log — Phase 2
 
 Turns local AI coding session history into one short, factual, first-person
-"build log" post per day. Phase 1 ships a Claude Code source plugin; Codex and
-Cursor are registered stubs for phase 2.
+"build log" post per day. Phase 2 ships Claude Code, Codex, and Cursor
+(agent-transcript) source plugins; a default run merges all three into one post.
 
 **Repo:** https://github.com/musicofthings/devlog
 
@@ -10,31 +10,31 @@ Cursor are registered stubs for phase 2.
 
 | Suite | Result |
 |-------|--------|
-| `pytest` | **27 passed** |
-| Offline evals (`python -m evals.run`) | **5/5 passed** |
-| Live evals (`python -m evals.run --live`) | **5/5 passed** (compact digest + token caps) |
+| `pytest` | **36 passed** |
+| Offline evals (`python -m evals.run`) | **8/8 passed** |
+| Live evals (`python -m evals.run --live`) | **8/8 passed** |
 
-Token-efficient Claude path: compact digests (~37% shorter on sample day),
-`max_tokens=120`, empty-day API skip, 5-sentence output clamp.
+Token-efficient Claude path: compact digests with `src=` tags, `max_tokens=120`,
+empty-day API skip, 5-sentence output clamp.
 
 ## Layout
 
 ```
 devlog/
-  cli.py              # argparse entrypoint
+  cli.py              # argparse entrypoint (per-source roots)
   digest.py           # calendar-day slicing (local timezone) + compact digests
   models.py           # RawSession, SessionDigest
   summarize.py        # digest → post (Claude API or template fallback)
   sources/
     base.py           # plugin registry
-    claude_code.py    # JSONL parser (FR1–FR4)
-    codex.py          # stub
-    cursor.py         # stub
+    claude_code.py    # ~/.claude projects JSONL
+    codex.py          # ~/.codex sessions/YYYY/MM/DD/rollout-*.jsonl
+    cursor.py         # ~/.cursor/projects/*/agent-transcripts/**/*.jsonl
 evals/                # acceptance-style offline/live eval harness
 main.py               # thin wrapper → devlog.cli
-sample_data/claude_code/   # synthetic JSONL for offline tests
+sample_data/          # claude_code, codex, cursor fixtures
 tests/                # pytest suite
-docs/                 # GitHub Pages landing
+docs/                 # GitHub Pages landing + superpowers specs/plans
 ```
 
 ## Setup
@@ -45,23 +45,25 @@ pip install -e ".[dev]"
 
 ## Run
 
-Print today's post without writing a file:
+Print today's post without writing a file (defaults: all three sources):
 
 ```bash
 python main.py --date today --dry-run
 ```
 
-Run against bundled sample data (layout is auto-detected; `--sample-mode` is optional):
+Against bundled sample data:
 
 ```bash
-python main.py --date 2026-07-22 --claude-root sample_data/claude_code
+python main.py --date 2026-07-22 --sources claude_code --claude-root sample_data/claude_code
+python main.py --date 2026-07-20 --sources codex,cursor \
+  --codex-root sample_data/codex --cursor-root sample_data/cursor --dry-run
 ```
 
-Against real Claude Code logs (default root `~/.claude`):
+Against real local logs:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...   # optional; template fallback without it
-python main.py --date today
+python main.py --date today --dry-run --verbose
 ```
 
 Writes `devlog-YYYY-MM-DD.md` unless `--dry-run` is set.
@@ -71,42 +73,42 @@ Writes `devlog-YYYY-MM-DD.md` unless `--dry-run` is set.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--date` | `today` | Target day (`YYYY-MM-DD` or `today`, local timezone) |
-| `--sources` | `claude_code` | Comma-separated source plugins |
-| `--claude-root` | `~/.claude` | Root dir for session data |
-| `--sample-mode` | off | Optional/legacy; sample layout is auto-detected by the Claude Code parser |
+| `--sources` | `claude_code,codex,cursor` | Comma-separated source plugins |
+| `--claude-root` | `~/.claude` | Claude Code data root |
+| `--codex-root` | `~/.codex` | Codex data root |
+| `--cursor-root` | `~/.cursor` | Cursor data root (agent transcripts) |
+| `--sample-mode` | off | Optional/legacy; Claude sample layout is auto-detected |
 | `--dry-run` | off | Print post; do not write `devlog-*.md` |
 | `--verbose` | off | Extra diagnostics per source |
+
+Missing roots are skipped (other sources still run).
 
 ## Tests
 
 ```bash
 python -m pytest
-# expected: 27 passed
+# expected: 36 passed
 ```
 
 ## Evals
 
-Phase 1 acceptance-style evals against `sample_data/` (offline template by default):
-
 ```bash
-python -m evals.run          # expected: 5/5
+python -m evals.run          # expected: 8/8
 python -m evals.run --json
-python -m evals.run --live   # requires ANTHROPIC_API_KEY; expected: 5/5
+python -m evals.run --live   # requires ANTHROPIC_API_KEY
 ```
 
 Also covered by pytest via `tests/test_evals.py`.
 
-## Manual acceptance (real ~/.claude)
+## Manual acceptance
 
-Before relying on output in production:
-
-1. Run against real `~/.claude` for at least one day with `--dry-run`.
-2. Confirm project paths look correct (not garbled dashes from lossy folder decode).
-3. Confirm `--date today` matches your local calendar day.
+1. `python main.py --date 2026-07-20 --dry-run --verbose` (or another day with real activity).
+2. Confirm Codex paths use real `cwd` and Cursor paths decode from `projects/` folder names.
+3. Confirm a multi-tool day produces one merged post with distinct sources in digests (`--verbose`).
 
 ## Next
 
-- Flesh out Codex and Cursor source plugins (phase 2).
 - Publishing integrations beyond the local markdown file.
+- Optional Cursor SQLite / Composer history (deferred; agent transcripts only for now).
 
 See `PRD_TRD.md` and `docs/superpowers/` for full spec and design.

@@ -12,6 +12,8 @@ from devlog.digest import slice_for_date
 from devlog.models import RawSession
 from devlog.summarize import generate_post
 
+DEFAULT_SOURCES = "claude_code,codex,cursor"
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -20,13 +22,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--date", default="today", help="YYYY-MM-DD or 'today' (local timezone)")
     parser.add_argument(
         "--sources",
-        default="claude_code",
-        help="Comma-separated list of source names to collect from (default: claude_code)",
+        default=DEFAULT_SOURCES,
+        help=f"Comma-separated source names (default: {DEFAULT_SOURCES})",
     )
     parser.add_argument(
         "--claude-root",
         default="~/.claude",
         help="Root of Claude Code's local data dir",
+    )
+    parser.add_argument(
+        "--codex-root",
+        default="~/.codex",
+        help="Root of Codex local data dir",
+    )
+    parser.add_argument(
+        "--cursor-root",
+        default="~/.cursor",
+        help="Root of Cursor local data dir (agent transcripts under projects/)",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="Print the post but do not write a file"
@@ -38,6 +50,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Legacy flag; sample layout is auto-detected (kept for compatibility)",
     )
     return parser
+
+
+def _root_for_source(name: str, args: argparse.Namespace) -> Path:
+    mapping = {
+        "claude_code": args.claude_root,
+        "codex": args.codex_root,
+        "cursor": args.cursor_root,
+    }
+    raw = mapping.get(name, args.claude_root)
+    return Path(raw).expanduser()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -65,19 +87,17 @@ def main(argv: list[str] | None = None) -> int:
         print(exc.args[0] if exc.args else str(exc))
         return 2
 
-    # All current sources read from --claude-root. ClaudeCodeParser auto-detects
-    # sample vs real layout (projects/ subdir or not); --sample-mode is legacy.
-    root = Path(args.claude_root).expanduser()
-
     raw_sessions: list[RawSession] = []
-    if not root.exists():
-        print(f"No data root found at {root} — nothing to report.")
-    else:
-        for source in sources:
-            found = source.iter_sessions(root)
+    for source in sources:
+        root = _root_for_source(source.name, args)
+        if not root.exists():
             if args.verbose:
-                print(f"[{source.name}] found {len(found)} session(s) under {root}")
-            raw_sessions.extend(found)
+                print(f"[{source.name}] no data root at {root} — skipping")
+            continue
+        found = source.iter_sessions(root)
+        if args.verbose:
+            print(f"[{source.name}] found {len(found)} session(s) under {root}")
+        raw_sessions.extend(found)
 
     digests = slice_for_date(raw_sessions, target_date, tz)
 

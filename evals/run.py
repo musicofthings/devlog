@@ -15,7 +15,7 @@ from evals.cases import CASES, run_all
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run Daily Dev Log Phase 1 evals")
+    parser = argparse.ArgumentParser(description="Run Daily Dev Log Phase 2 evals")
     parser.add_argument(
         "--live",
         action="store_true",
@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         ]
         print(json.dumps(payload, indent=2))
     else:
-        print("Daily Dev Log - Phase 1 evals")
+        print("Daily Dev Log - Phase 2 evals")
         print(f"mode: {'live+offline' if live else 'offline (template)'}")
         print()
         desc = {c.case_id: c.description for c in CASES}

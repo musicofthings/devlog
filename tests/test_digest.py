@@ -104,5 +104,6 @@ def test_compact_digest_is_shorter_and_keeps_signal():
     assert "variantgpt" in compact
     assert "Refactor the VCF parser" in compact
     assert "should be dropped" not in compact
+    assert "src=claude_code" in compact
     assert "source=" not in compact
     assert "vcf_parser.py" in compact

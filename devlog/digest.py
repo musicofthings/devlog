@@ -99,7 +99,7 @@ def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) ->
     for s in sessions:
         label = _basename(s.project_path) if compact else s.project_path
         if compact:
-            lines.append(f"\n[{label}, {s.duration_minutes:.0f}m]")
+            lines.append(f"\n[{label}, {s.duration_minutes:.0f}m, src={s.source}]")
         else:
             lines.append(
                 f"\n[Project: {s.project_path}, {s.duration_minutes:.0f} min, source={s.source}]"
