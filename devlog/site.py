@@ -10,24 +10,20 @@ from pathlib import Path
 _DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.md$")
 
 SHARED_CSS = """
-:root {
-  --ink: #0e1628;
-  --slate: #172338;
-  --line: #2a3a55;
-  --mist: #9eb0c9;
-  --paper: #f3eee4;
-  --amber: #e8c47a;
-  --foam: #d7e2f2;
-}
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
 body {
   font-family: "IBM Plex Sans", system-ui, sans-serif;
   color: var(--foam);
   background:
-    radial-gradient(900px 480px at 85% -5%, rgba(232, 196, 122, 0.12), transparent 55%),
-    linear-gradient(165deg, #121c31 0%, var(--ink) 50%, #0a101c 100%);
+    radial-gradient(
+      900px 480px at 85% -5%,
+      color-mix(in srgb, var(--amber) 14%, transparent),
+      transparent 55%
+    ),
+    linear-gradient(165deg, var(--bg-accent) 0%, var(--bg) 50%, var(--bg-accent) 100%);
   min-height: 100vh;
+  transition: background 180ms ease, color 180ms ease;
 }
 a { color: var(--amber); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -35,9 +31,11 @@ a:hover { text-decoration: underline; }
   max-width: 42rem;
   margin: 0 auto;
   padding: clamp(1.5rem, 4vw, 3rem);
+  padding-top: clamp(3.5rem, 6vw, 4.5rem);
 }
 .nav {
   display: flex;
+  align-items: center;
   gap: 1.25rem;
   margin-bottom: 2rem;
   font-family: "IBM Plex Mono", monospace;
@@ -45,10 +43,12 @@ a:hover { text-decoration: underline; }
 }
 h1, h2 {
   font-family: "Fraunces", Georgia, serif;
-  color: var(--paper);
+  color: var(--ink);
   font-weight: 700;
   letter-spacing: -0.02em;
 }
+html[data-theme="dark"] h1,
+html[data-theme="dark"] h2 { color: var(--paper); }
 h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 0 0 0.75rem; }
 .meta { color: var(--mist); font-size: 0.95rem; margin-bottom: 1.75rem; }
 .post-body {
@@ -81,6 +81,28 @@ FONT_LINKS = (
     "500;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;"
     '500&display=swap" rel="stylesheet" />\n'
 )
+
+THEME_BOOT = """  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("devlog-theme");
+        document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+"""
+
+THEME_TOGGLE = (
+    '  <button type="button" class="theme-toggle" id="theme-toggle" '
+    'aria-label="Switch to dark theme">\n'
+    '    <span class="icon icon-sun" aria-hidden="true">☀</span>\n'
+    '    <span class="icon icon-moon" aria-hidden="true">☾</span>\n'
+    '    <span class="label">Dark</span>\n'
+    "  </button>\n"
+)
+
 
 def list_posts(posts_dir: Path) -> list[tuple[date, Path, str]]:
     """Return (date, path, body) newest-first."""
@@ -125,15 +147,18 @@ def _md_to_paragraphs(body: str) -> str:
 
 def _page(title: str, body_html: str) -> str:
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{html.escape(title)} · Daily Dev Log</title>
+{THEME_BOOT}
   {FONT_LINKS}
+  <link rel="stylesheet" href="../assets/theme.css" />
   <style>{SHARED_CSS}</style>
 </head>
 <body>
+{THEME_TOGGLE}
   <div class="wrap">
     <nav class="nav">
       <a href="../index.html">Home</a>
@@ -141,6 +166,7 @@ def _page(title: str, body_html: str) -> str:
     </nav>
     {body_html}
   </div>
+  <script src="../assets/theme.js"></script>
 </body>
 </html>
 """
@@ -159,7 +185,7 @@ def build_day_html(day: date, body: str) -> str:
 
 def build_feed_html(posts: list[tuple[date, Path, str]]) -> str:
     if not posts:
-        items = "<li><p class=\"excerpt\">No posts yet.</p></li>"
+        items = '<li><p class="excerpt">No posts yet.</p></li>'
     else:
         chunks: list[str] = []
         for day, _path, body in posts:
@@ -207,7 +233,6 @@ def rebuild_site(repo_path: Path) -> list[Path]:
     feed_path.write_text(build_feed_html(posts), encoding="utf-8")
     written.append(feed_path)
 
-    # Remove stale day pages then rewrite current set.
     existing = {p.name for p in log_dir.glob("????-??-??.html")}
     keep: set[str] = set()
     for day, _path, body in posts:
@@ -236,7 +261,6 @@ def _ensure_landing_nav(index_path: Path) -> None:
         return
     replacement = (
         needle
-        + '\n      <a class="cta" href="log/index.html" style="margin-left:0.75rem;'
-        'background:transparent;color:var(--amber);">Read the log →</a>'
+        + '\n        <a class="cta ghost" href="log/index.html">Read the log →</a>'
     )
     index_path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")

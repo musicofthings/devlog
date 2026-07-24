@@ -1,0 +1,75 @@
+/* Shared theme tokens — light is default */
+:root,
+html[data-theme="light"] {
+  --ink: #132038;
+  --slate: #e8edf4;
+  --line: #cfd8e6;
+  --mist: #5a6678;
+  --paper: #ffffff;
+  --amber: #9a7410;
+  --foam: #1c2433;
+  --bg: #f3f5f8;
+  --bg-accent: #e8eef6;
+  --surface: #ffffff;
+  --surface-muted: #eef2f7;
+  --hero-grid: rgba(19, 32, 56, 0.06);
+  --ticker-bg: rgba(255, 255, 255, 0.82);
+  --footer-bg: #e4eaf2;
+  --card-border: #d5dde8;
+  --results-bg: #eef2f7;
+  --results-text: #1c2433;
+  --results-muted: #546275;
+}
+
+html[data-theme="dark"] {
+  --ink: #0e1628;
+  --slate: #172338;
+  --line: #2a3a55;
+  --mist: #9eb0c9;
+  --paper: #f3eee4;
+  --amber: #e8c47a;
+  --foam: #d7e2f2;
+  --bg: #0e1628;
+  --bg-accent: #0a101c;
+  --surface: #172338;
+  --surface-muted: rgba(23, 35, 56, 0.72);
+  --hero-grid: rgba(158, 176, 201, 0.05);
+  --ticker-bg: rgba(23, 35, 56, 0.72);
+  --footer-bg: #172338;
+  --card-border: #2a3a55;
+  --results-bg: #f3eee4;
+  --results-text: #1c2433;
+  --results-muted: #4b586c;
+}
+
+.theme-toggle {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--foam);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(19, 32, 56, 0.04);
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+.theme-toggle:hover {
+  border-color: var(--amber);
+}
+.theme-toggle .icon {
+  width: 0.9rem;
+  height: 0.9rem;
+  display: inline-block;
+}
+html[data-theme="light"] .theme-toggle .icon-moon { display: none; }
+html[data-theme="dark"] .theme-toggle .icon-sun { display: none; }
+html[data-theme="dark"] .theme-toggle .icon-moon { display: inline-block; }
+html[data-theme="light"] .theme-toggle .icon-sun { display: inline-block; }

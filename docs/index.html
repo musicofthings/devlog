@@ -1,30 +1,32 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Daily Dev Log</title>
   <meta name="description" content="Turn AI coding sessions into one short, factual build-log post per day." />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("devlog-theme");
+        document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/theme.css" />
   <style>
-    :root {
-      --ink: #0e1628;
-      --slate: #172338;
-      --line: #2a3a55;
-      --mist: #9eb0c9;
-      --paper: #f3eee4;
-      --amber: #e8c47a;
-      --foam: #d7e2f2;
-    }
-
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; }
     body {
       font-family: "IBM Plex Sans", system-ui, sans-serif;
       color: var(--foam);
-      background: var(--ink);
+      background: var(--bg);
+      transition: background 180ms ease, color 180ms ease;
     }
 
     .hero {
@@ -35,8 +37,8 @@
       padding: clamp(1.5rem, 4vw, 3rem);
       overflow: hidden;
       background:
-        radial-gradient(1200px 600px at 80% -10%, rgba(232, 196, 122, 0.14), transparent 55%),
-        linear-gradient(165deg, #121c31 0%, var(--ink) 48%, #0a101c 100%);
+        radial-gradient(1200px 600px at 80% -10%, color-mix(in srgb, var(--amber) 18%, transparent), transparent 55%),
+        linear-gradient(165deg, var(--bg-accent) 0%, var(--bg) 48%, var(--bg-accent) 100%);
     }
 
     .hero::before {
@@ -44,10 +46,10 @@
       position: absolute;
       inset: 0;
       background-image:
-        linear-gradient(rgba(158, 176, 201, 0.05) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(158, 176, 201, 0.04) 1px, transparent 1px);
+        linear-gradient(var(--hero-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--hero-grid) 1px, transparent 1px);
       background-size: 48px 48px;
-      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent 75%);
+      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.45), transparent 75%);
       pointer-events: none;
     }
 
@@ -65,10 +67,11 @@
       line-height: 0.92;
       letter-spacing: -0.03em;
       margin: 0 0 1.25rem;
-      color: var(--paper);
+      color: var(--ink);
       opacity: 0;
       animation: rise 0.9s ease forwards 0.1s;
     }
+    html[data-theme="dark"] .brand { color: var(--paper); }
 
     .lede {
       margin: 0 0 1.75rem;
@@ -80,32 +83,43 @@
       animation: rise 0.9s ease forwards 0.28s;
     }
 
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      opacity: 0;
+      animation: rise 0.9s ease forwards 0.42s;
+    }
+
     .cta {
       display: inline-flex;
       align-items: center;
       gap: 0.55rem;
       padding: 0.85rem 1.2rem;
       border: 1px solid var(--amber);
-      color: var(--ink);
+      color: #132038;
       background: var(--amber);
       text-decoration: none;
       font-family: "IBM Plex Mono", monospace;
       font-size: 0.92rem;
       font-weight: 500;
-      opacity: 0;
-      animation: rise 0.9s ease forwards 0.42s;
-      transition: transform 160ms ease, background 160ms ease;
+      transition: transform 160ms ease, background 160ms ease, color 160ms ease;
     }
-    .cta:hover { transform: translateY(-2px); background: #f0d39a; }
+    html[data-theme="dark"] .cta { color: var(--ink); }
+    .cta:hover { transform: translateY(-2px); filter: brightness(1.05); }
+    .cta.ghost {
+      background: transparent;
+      color: var(--amber);
+    }
 
     .ticker {
       position: absolute;
       right: clamp(1rem, 5vw, 3rem);
-      top: clamp(1.5rem, 8vh, 4rem);
+      top: clamp(3.2rem, 8vh, 4.5rem);
       width: min(28rem, 42vw);
       padding: 1rem 1.1rem;
       border: 1px solid var(--line);
-      background: rgba(23, 35, 56, 0.72);
+      background: var(--ticker-bg);
       backdrop-filter: blur(6px);
       font-family: "IBM Plex Mono", monospace;
       font-size: 0.78rem;
@@ -134,12 +148,12 @@
         width: 100%;
         margin-bottom: 1.75rem;
       }
-      .hero { align-items: start; padding-top: 1.5rem; }
+      .hero { align-items: start; padding-top: 3.5rem; }
     }
 
     .results {
-      background: var(--paper);
-      color: #1c2433;
+      background: var(--results-bg);
+      color: var(--results-text);
       padding: clamp(2.5rem, 7vw, 5rem) clamp(1.5rem, 4vw, 3rem);
     }
     .results h2 {
@@ -150,7 +164,7 @@
     .results p {
       margin: 0 0 1.75rem;
       max-width: 36rem;
-      color: #4b586c;
+      color: var(--results-muted);
     }
     .grid {
       display: grid;
@@ -161,9 +175,13 @@
       .grid { grid-template-columns: 1fr; }
     }
     .card {
-      border: 1px solid #d7cfc0;
+      border: 1px solid var(--card-border);
       padding: 1.15rem 1.2rem;
+      background: var(--paper);
+    }
+    html[data-theme="dark"] .card {
       background: #faf7f1;
+      border-color: #d7cfc0;
     }
     .card .label {
       font-family: "IBM Plex Mono", monospace;
@@ -186,7 +204,7 @@
     }
 
     footer {
-      background: var(--slate);
+      background: var(--footer-bg);
       color: var(--mist);
       padding: 1.25rem clamp(1.5rem, 4vw, 3rem);
       font-family: "IBM Plex Mono", monospace;
@@ -205,6 +223,12 @@
   </style>
 </head>
 <body>
+  <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark theme">
+    <span class="icon icon-sun" aria-hidden="true">☀</span>
+    <span class="icon icon-moon" aria-hidden="true">☾</span>
+    <span class="label">Dark</span>
+  </button>
+
   <header class="hero">
     <div class="ticker" aria-hidden="true">
       <div>&gt; src=claude_code · variantgpt · stream VCF parser</div>
@@ -216,8 +240,10 @@
       <p class="lede">
         Turn AI coding sessions into one short, factual first-person build-log post per day — local CLI with Claude Code, Codex, and Cursor.
       </p>
-      <a class="cta" href="https://github.com/musicofthings/devlog">Open on GitHub →</a>
-      <a class="cta" href="log/index.html" style="margin-left:0.75rem;background:transparent;color:var(--amber);">Read the log →</a>
+      <div class="cta-row">
+        <a class="cta" href="https://github.com/musicofthings/devlog">Open on GitHub →</a>
+        <a class="cta ghost" href="log/index.html">Read the log →</a>
+      </div>
     </div>
   </header>
 
@@ -246,5 +272,6 @@
   <footer>
     musicofthings/devlog · Phase 2 · <a href="https://github.com/musicofthings/devlog">source</a>
   </footer>
+  <script src="assets/theme.js"></script>
 </body>
 </html>
