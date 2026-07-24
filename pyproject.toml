@@ -1,0 +1,25 @@
+# pyproject.toml
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "devlog"
+version = "0.1.0"
+description = "Daily build-log posts from AI coding tool session transcripts"
+requires-python = ">=3.11"
+dependencies = [
+  "anthropic>=0.40.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+devlog = "devlog.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["devlog*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
