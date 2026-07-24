@@ -1,0 +1,6 @@
+{"type": "user", "uuid": "u1", "timestamp": "2026-07-22T14:12:00Z", "message": {"role": "user", "content": "Draft the claims section for the orbital thermal dissipation patent"}}
+{"type": "assistant", "uuid": "a1", "timestamp": "2026-07-22T14:13:00Z", "message": {"model": "claude-opus-4-8", "content": [{"type": "tool_use", "id": "t1", "name": "Write", "input": {"file_path": "/Users/dev/code/helios-patent/claims_draft_v3.md"}}], "usage": {"input_tokens": 900, "cache_read_input_tokens": 4000, "cache_creation_input_tokens": 2000, "output_tokens": 1200}}}
+{"type": "tool_result", "uuid": "r1", "timestamp": "2026-07-22T14:13:05Z", "message": {"tool_use_id": "t1", "content": "File written"}}
+{"type": "user", "uuid": "u2", "timestamp": "2026-07-22T14:40:00Z", "message": {"role": "user", "content": "Search for prior art on radiative cooling panels in orbit"}}
+{"type": "assistant", "uuid": "a2", "timestamp": "2026-07-22T14:41:00Z", "message": {"model": "claude-opus-4-8", "content": [{"type": "tool_use", "id": "t2", "name": "WebSearch", "input": {"query": "orbital radiative cooling panel patents"}}], "usage": {"input_tokens": 350, "cache_read_input_tokens": 4500, "cache_creation_input_tokens": 100, "output_tokens": 400}}}
+{"type": "tool_result", "uuid": "r2", "timestamp": "2026-07-22T14:41:20Z", "message": {"tool_use_id": "t2", "content": "search results..."}}
