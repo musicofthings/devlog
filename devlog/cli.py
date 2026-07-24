@@ -33,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sample-mode",
         action="store_true",
-        help="Treat --claude-root as the bundled sample_data layout",
+        help="Legacy flag; sample layout is auto-detected (kept for compatibility)",
     )
     return parser
 
@@ -43,7 +43,14 @@ def main(argv: list[str] | None = None) -> int:
 
     now = datetime.now().astimezone()
     tz = now.tzinfo
-    target_date = now.date() if args.date == "today" else datetime.strptime(args.date, "%Y-%m-%d").date()
+    if args.date == "today":
+        target_date = now.date()
+    else:
+        try:
+            target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
+        except ValueError:
+            print(f"Invalid --date {args.date!r}: expected YYYY-MM-DD or 'today'")
+            return 2
 
     # Import for side-effect registration of built-in source parsers.
     import devlog.sources  # noqa: F401
@@ -53,12 +60,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         sources = get_sources(source_names)
     except KeyError as exc:
-        print(str(exc))
+        print(exc.args[0] if exc.args else str(exc))
         return 2
 
-    # All current sources (claude_code, plus the codex/cursor stubs) read
-    # from --claude-root; --sample-mode just means that root already has the
-    # sample_data/claude_code layout (a "projects/" dir) instead of ~/.claude.
+    # All current sources read from --claude-root. ClaudeCodeParser auto-detects
+    # sample vs real layout (projects/ subdir or not); --sample-mode is legacy.
     root = Path(args.claude_root).expanduser()
 
     raw_sessions: list[RawSession] = []

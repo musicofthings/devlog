@@ -36,10 +36,10 @@ Print today's post without writing a file:
 python main.py --date today --dry-run
 ```
 
-Run against bundled sample data:
+Run against bundled sample data (layout is auto-detected; `--sample-mode` is optional):
 
 ```bash
-python main.py --date 2026-07-22 --claude-root sample_data/claude_code --sample-mode
+python main.py --date 2026-07-22 --claude-root sample_data/claude_code
 ```
 
 Against real Claude Code logs (default root `~/.claude`):
@@ -58,7 +58,7 @@ Writes `devlog-YYYY-MM-DD.md` unless `--dry-run` is set.
 | `--date` | `today` | Target day (`YYYY-MM-DD` or `today`, local timezone) |
 | `--sources` | `claude_code` | Comma-separated source plugins |
 | `--claude-root` | `~/.claude` | Root dir for session data |
-| `--sample-mode` | off | Use bundled `sample_data/claude_code` layout |
+| `--sample-mode` | off | Optional/legacy; sample layout is auto-detected by the Claude Code parser |
 | `--dry-run` | off | Print post; do not write `devlog-*.md` |
 | `--verbose` | off | Extra diagnostics per source |
 
