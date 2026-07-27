@@ -164,6 +164,7 @@ def parse_rollout_file(path: Path) -> RawSession | None:
                 elif ptype == "token_count":
                     info = payload.get("info") or {}
                     last = info.get("last_token_usage")
+                    total = info.get("total_token_usage")
                     if isinstance(last, dict):
                         events.append(
                             SessionEvent(
@@ -173,24 +174,30 @@ def parse_rollout_file(path: Path) -> RawSession | None:
                                 tokens_cache_read=int(last.get("cached_input_tokens") or 0),
                             )
                         )
-                    else:
+                        # Keep the cumulative baseline in sync even though this
+                        # event was reported via last_token_usage, so a later
+                        # total_token_usage-only event (format drift mid-file)
+                        # still computes a correct delta instead of double
+                        # counting tokens already reported here.
+                        if isinstance(total, dict):
+                            for key in prev_totals:
+                                prev_totals[key] = int(total.get(key) or 0)
+                    elif isinstance(total, dict):
                         # total_token_usage is cumulative; summing it across
                         # events would inflate totals, so emit the delta.
-                        total = info.get("total_token_usage")
-                        if isinstance(total, dict):
-                            deltas = {}
-                            for key in prev_totals:
-                                cur = int(total.get(key) or 0)
-                                deltas[key] = max(0, cur - prev_totals[key])
-                                prev_totals[key] = cur
-                            events.append(
-                                SessionEvent(
-                                    timestamp=ts,
-                                    tokens_in=deltas["input_tokens"],
-                                    tokens_out=deltas["output_tokens"],
-                                    tokens_cache_read=deltas["cached_input_tokens"],
-                                )
+                        deltas = {}
+                        for key in prev_totals:
+                            cur = int(total.get(key) or 0)
+                            deltas[key] = max(0, cur - prev_totals[key])
+                            prev_totals[key] = cur
+                        events.append(
+                            SessionEvent(
+                                timestamp=ts,
+                                tokens_in=deltas["input_tokens"],
+                                tokens_out=deltas["output_tokens"],
+                                tokens_cache_read=deltas["cached_input_tokens"],
                             )
+                        )
                 continue
 
             if etype == "response_item":

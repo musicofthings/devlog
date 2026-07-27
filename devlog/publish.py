@@ -77,6 +77,10 @@ def _git_publish_auto(
     # after the remote moved (e.g. an edit made on GitHub or another machine).
     pull = git_run(["git", "pull", "--rebase", remote, branch], repo)
     if pull.returncode != 0:
+        # Leave the repo in a clean state on failure -- otherwise it's stuck
+        # mid-rebase and every subsequent scheduled run fails too, until a
+        # human runs `git rebase --abort` by hand.
+        git_run(["git", "rebase", "--abort"], repo)
         raise RuntimeError(pull.stderr or pull.stdout or "git pull --rebase failed")
 
     push = git_run(["git", "push", remote, branch], repo)
