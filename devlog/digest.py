@@ -58,7 +58,7 @@ def slice_for_date(
     return sorted(out, key=lambda s: s.start_time)
 
 
-def _basename(path: str) -> str:
+def basename(path: str) -> str:
     return path.replace("\\", "/").rstrip("/").split("/")[-1] or path
 
 
@@ -87,7 +87,7 @@ def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) ->
     lines: list[str] = []
     total_minutes = sum(s.duration_minutes for s in sessions)
     if compact:
-        projects = sorted({_basename(s.project_path) for s in sessions})
+        projects = sorted({basename(s.project_path) for s in sessions})
         lines.append(f"{total_minutes:.0f} min, {len(sessions)} session(s): {', '.join(projects)}")
     else:
         projects = sorted({s.project_path for s in sessions})
@@ -97,7 +97,7 @@ def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) ->
         lines.append(f"Projects touched: {', '.join(projects)}")
 
     for s in sessions:
-        label = _basename(s.project_path) if compact else s.project_path
+        label = basename(s.project_path) if compact else s.project_path
         if compact:
             lines.append(f"\n[{label}, {s.duration_minutes:.0f}m, src={s.source}]")
         else:
@@ -121,7 +121,7 @@ def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) ->
             if max_files is not None:
                 files = files[:max_files]
             if compact:
-                files = [_basename(f) for f in files]
+                files = [basename(f) for f in files]
             prefix = "  Files: " if compact else "  Files touched: "
             lines.append(prefix + ", ".join(files))
 

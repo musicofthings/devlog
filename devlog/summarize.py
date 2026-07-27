@@ -10,8 +10,9 @@ a key.
 from __future__ import annotations
 
 import os
+import re
 
-from devlog.digest import build_raw_digest
+from devlog.digest import basename, build_raw_digest
 from devlog.models import SessionDigest
 
 # Kept tight: every word here is billed as input on every call.
@@ -21,37 +22,39 @@ SUMMARY_SYSTEM_PROMPT = (
     "Name projects and concrete changes. Invent nothing."
 )
 
-# Cap output for ~3-4 sentences (~60-90 words).
-CLAUDE_MAX_TOKENS = 120
-CLAUDE_MODEL = "claude-sonnet-4-6"
+# Cap output for ~3-4 sentences with headroom so posts never truncate mid-sentence.
+CLAUDE_MAX_TOKENS = 200
+CLAUDE_MODEL = "claude-sonnet-5"
 MAX_POST_SENTENCES = 5
+
+# Sentence boundary: terminal punctuation followed by whitespace (or end of
+# string). Keeps decimals like "1.5 hours" intact.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 
 def _clamp_sentences(text: str, max_sentences: int = MAX_POST_SENTENCES) -> str:
     """Hard-cap sentence count to keep posts (and evals) token-efficient."""
-    parts = []
-    buf = []
-    for ch in text.strip():
-        buf.append(ch)
-        if ch in ".!?":
-            parts.append("".join(buf).strip())
-            buf = []
-            if len(parts) >= max_sentences:
-                break
-    if buf and len(parts) < max_sentences:
-        leftover = "".join(buf).strip()
-        if leftover:
-            parts.append(leftover if leftover.endswith((".", "!", "?")) else leftover + ".")
-    return " ".join(p for p in parts if p)
+    parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(text.strip()) if p.strip()]
+    parts = parts[:max_sentences]
+    if parts and not parts[-1].endswith((".", "!", "?")):
+        parts[-1] += "."
+    return " ".join(parts)
 
 
-def summarize_with_claude(raw_digest: str, api_key: str | None = None) -> str:
+def summarize_with_claude(
+    raw_digest: str,
+    api_key: str | None = None,
+    model: str = CLAUDE_MODEL,
+) -> str:
     import anthropic
 
     client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
     response = client.messages.create(
-        model=CLAUDE_MODEL,
+        model=model,
         max_tokens=CLAUDE_MAX_TOKENS,
+        # Sonnet 5 thinks by default and thinking counts against max_tokens;
+        # this task is trivial, so keep the budget for the post itself.
+        thinking={"type": "disabled"},
         system=SUMMARY_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": f"Digest:\n{raw_digest}\n\nPost:"}],
     )
@@ -65,7 +68,7 @@ def summarize_with_template(sessions: list[SessionDigest]) -> str:
     if not sessions:
         return "No coding activity logged today."
 
-    projects = sorted({s.project_path.split("/")[-1] for s in sessions})
+    projects = sorted({basename(s.project_path) for s in sessions})
     total_minutes = sum(s.duration_minutes for s in sessions)
     all_tools = {}
     for s in sessions:
@@ -76,13 +79,13 @@ def summarize_with_template(sessions: list[SessionDigest]) -> str:
     parts = [f"Today: {total_minutes:.0f} min across {', '.join(projects)}."]
     for s in sessions:
         if s.user_messages:
-            parts.append(f"On {s.project_path.split('/')[-1]}: {s.user_messages[0]}")
+            parts.append(f"On {basename(s.project_path)}: {s.user_messages[0]}")
     if top_tools:
         parts.append("Tools: " + ", ".join(f"{k} ({v}x)" for k, v in top_tools) + ".")
     return " ".join(parts)
 
 
-def generate_post(sessions: list[SessionDigest]) -> str:
+def generate_post(sessions: list[SessionDigest], model: str | None = None) -> str:
     # Empty day: never spend tokens on the API.
     if not sessions:
         return summarize_with_template(sessions)
@@ -92,7 +95,7 @@ def generate_post(sessions: list[SessionDigest]) -> str:
     raw_digest = build_raw_digest(sessions, compact=True)
     if api_key:
         try:
-            return summarize_with_claude(raw_digest, api_key=api_key)
+            return summarize_with_claude(raw_digest, api_key=api_key, model=model or CLAUDE_MODEL)
         except Exception as e:  # network/auth issues -> don't crash the pipeline
             print(f"[warn] Claude summarization failed ({e}); falling back to template.")
     return summarize_with_template(sessions)

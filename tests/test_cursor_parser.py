@@ -1,3 +1,4 @@
+from datetime import UTC
 from pathlib import Path
 
 from devlog.sources.cursor import CursorParser, decode_cursor_project_folder, parse_transcript_file
@@ -21,6 +22,28 @@ def test_sample_fixtures_parse():
     assert any(e.tool_name == "Read" for e in s.events)
     assert any(e.tool_name == "Shell" for e in s.events)
     assert any(e.bash_command and "pytest" in e.bash_command for e in s.events)
+
+
+def test_embedded_timestamp_generic_utc_offsets():
+    from datetime import timedelta
+
+    from devlog.sources.cursor import _parse_embedded_timestamp
+
+    dt = _parse_embedded_timestamp(
+        "<timestamp>Monday, Jul 20, 2026, 1:00 PM (UTC-7)</timestamp>hello"
+    )
+    assert dt is not None
+    assert dt.utcoffset() == timedelta(hours=-7)
+
+    dt = _parse_embedded_timestamp(
+        "<timestamp>Monday, Jul 20, 2026, 1:00 PM (UTC+5:30)</timestamp>hello"
+    )
+    assert dt is not None
+    assert dt.utcoffset() == timedelta(hours=5, minutes=30)
+
+    dt = _parse_embedded_timestamp("<timestamp>Monday, Jul 20, 2026, 1:00 PM (UTC)</timestamp>x")
+    assert dt is not None
+    assert dt.tzinfo == UTC
 
 
 def test_malformed_line_skipped(tmp_path: Path):

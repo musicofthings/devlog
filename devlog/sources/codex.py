@@ -108,19 +108,15 @@ def _clean_user_message(text: str, *, limit: int = 400) -> str | None:
 
 def parse_rollout_file(path: Path) -> RawSession | None:
     """Parse one Codex rollout JSONL into a RawSession, or None if unusable."""
+    # File stem is a fallback id; a session_meta line overrides it below.
     session_id = path.stem
-    # Prefer uuid suffix from rollout-<ts>-<uuid>.jsonl when present.
-    parts = path.stem.split("-")
-    if len(parts) >= 5:
-        # rollout-YYYY-MM-DDTHH-MM-SS-<uuid with dashes>
-        maybe_uuid = path.stem.split("rollout-", 1)[-1]
-        # Keep full stem as id if uuid extraction is ambiguous; session_meta overrides.
-        session_id = maybe_uuid
 
     project_path: str | None = None
     timestamps: list[datetime] = []
     events: list[SessionEvent] = []
     files_seen: list[str] = []
+    # Cumulative totals last seen, used to convert total_token_usage to deltas.
+    prev_totals = {"input_tokens": 0, "output_tokens": 0, "cached_input_tokens": 0}
 
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -167,16 +163,34 @@ def parse_rollout_file(path: Path) -> RawSession | None:
                             events.append(SessionEvent(timestamp=ts, user_message=cleaned))
                 elif ptype == "token_count":
                     info = payload.get("info") or {}
-                    usage = info.get("last_token_usage") or info.get("total_token_usage") or {}
-                    if isinstance(usage, dict):
+                    last = info.get("last_token_usage")
+                    if isinstance(last, dict):
                         events.append(
                             SessionEvent(
                                 timestamp=ts,
-                                tokens_in=int(usage.get("input_tokens") or 0),
-                                tokens_out=int(usage.get("output_tokens") or 0),
-                                tokens_cache_read=int(usage.get("cached_input_tokens") or 0),
+                                tokens_in=int(last.get("input_tokens") or 0),
+                                tokens_out=int(last.get("output_tokens") or 0),
+                                tokens_cache_read=int(last.get("cached_input_tokens") or 0),
                             )
                         )
+                    else:
+                        # total_token_usage is cumulative; summing it across
+                        # events would inflate totals, so emit the delta.
+                        total = info.get("total_token_usage")
+                        if isinstance(total, dict):
+                            deltas = {}
+                            for key in prev_totals:
+                                cur = int(total.get(key) or 0)
+                                deltas[key] = max(0, cur - prev_totals[key])
+                                prev_totals[key] = cur
+                            events.append(
+                                SessionEvent(
+                                    timestamp=ts,
+                                    tokens_in=deltas["input_tokens"],
+                                    tokens_out=deltas["output_tokens"],
+                                    tokens_cache_read=deltas["cached_input_tokens"],
+                                )
+                            )
                 continue
 
             if etype == "response_item":

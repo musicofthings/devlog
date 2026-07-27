@@ -26,7 +26,35 @@ def test_init_defaults(tmp_path: Path):
     assert cfg_path.exists()
     loaded = load_config(cfg_path)
     assert loaded is not None
-    assert loaded.publish_mode == "auto"
+    # Privacy-safe default: posts can contain raw prompts, so no auto-publish.
+    assert loaded.publish_mode == "manual"
+
+
+def test_config_windows_paths_roundtrip(tmp_path: Path):
+    """Backslash paths must not corrupt the TOML file (\\U is an invalid escape)."""
+    path = tmp_path / "config.toml"
+    cfg = DevlogConfig(
+        claude_root=r"C:\Users\shibi\.claude",
+        codex_root=r"C:\Users\shibi\.codex",
+        cursor_root=r"C:\Users\shibi\.cursor",
+        repo_path=r"C:\Users\shibi\Projects\devlog",
+        publish_mode="manual",
+    )
+    save_config(cfg, path)
+    loaded = load_config(path)
+    assert loaded is not None
+    assert loaded.claude_root == "C:/Users/shibi/.claude"
+    assert loaded.repo_path == "C:/Users/shibi/Projects/devlog"
+
+
+def test_config_rejects_bad_schedule_time(tmp_path: Path):
+    import pytest
+
+    with pytest.raises(ValueError):
+        DevlogConfig(schedule_time="6.30").validate()
+    with pytest.raises(ValueError):
+        DevlogConfig(schedule_time="25:00").validate()
+    DevlogConfig(schedule_time="06:30").validate()
 
 
 def test_resolve_publish_date():
@@ -130,7 +158,46 @@ def test_publish_auto_calls_git(tmp_path: Path):
     assert out["status"] == "published_auto"
     assert any(c[:2] == ["git", "add"] for c in calls)
     assert any(c[:2] == ["git", "commit"] for c in calls)
-    assert any(c[:2] == ["git", "push"] for c in calls)
+    # Pull --rebase must happen after commit and before push, so a moved
+    # remote doesn't permanently break the nightly job.
+    pull_idx = next(i for i, c in enumerate(calls) if c[:3] == ["git", "pull", "--rebase"])
+    push_idx = next(i for i, c in enumerate(calls) if c[:2] == ["git", "push"])
+    commit_idx = next(i for i, c in enumerate(calls) if c[:2] == ["git", "commit"])
+    assert commit_idx < pull_idx < push_idx
+
+
+def test_publish_pr_branches_from_base_and_returns(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    sample = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+    cfg = DevlogConfig(
+        sources=["codex"],
+        codex_root=str(sample),
+        repo_path=str(repo).replace("\\", "/"),
+        publish_mode="pr",
+        remote="origin",
+        branch="main",
+    )
+    calls: list[list[str]] = []
+
+    def fake_git(cmd: list[str], cwd: Path):
+        calls.append(cmd)
+        from subprocess import CompletedProcess
+
+        if cmd[:2] == ["git", "status"]:
+            return CompletedProcess(cmd, 0, stdout="M posts/2026-07-20.md\n", stderr="")
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    out = publish_day(cfg, date(2026, 7, 20), force=True, git_run=fake_git, gh_run=fake_git)
+    assert out["status"] == "published_pr"
+    # Branch is created off main, not off whatever was checked out.
+    assert ["git", "checkout", "-B", "devlog/post-2026-07-20", "main"] in calls
+    # And the repo ends back on main so tomorrow's PR doesn't stack.
+    assert calls[-1] == ["git", "checkout", "main"]
 
 
 def test_publish_dry_run_no_files(tmp_path: Path):

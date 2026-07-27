@@ -57,7 +57,7 @@ def test_bad_date_exits_2(capsys):
 
 
 def test_default_sources_include_all_three():
-    assert DEFAULT_SOURCES == "claude_code,codex,cursor"
+    assert DEFAULT_SOURCES == ["claude_code", "codex", "cursor"]
 
 
 def test_missing_root_skips_source_continues(tmp_path: Path, monkeypatch, capsys):

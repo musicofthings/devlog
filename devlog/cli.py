@@ -7,12 +7,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from devlog.config import load_config
+from devlog.config import DEFAULT_SOURCES, DevlogConfig, load_config
 from devlog.digest import slice_for_date
 from devlog.models import RawSession
 from devlog.summarize import generate_post
-
-DEFAULT_SOURCES = "claude_code,codex,cursor"
 
 
 def build_run_parser() -> argparse.ArgumentParser:
@@ -23,7 +21,7 @@ def build_run_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sources",
         default=None,
-        help=f"Comma-separated source names (default: config or {DEFAULT_SOURCES})",
+        help=f"Comma-separated source names (default: config or {','.join(DEFAULT_SOURCES)})",
     )
     parser.add_argument("--claude-root", default=None, help="Claude Code data root")
     parser.add_argument("--codex-root", default=None, help="Codex data root")
@@ -40,22 +38,18 @@ def build_run_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_roots_and_sources(args: argparse.Namespace) -> tuple[list[str], dict[str, str]]:
-    cfg = load_config()
+def _resolve_config(args: argparse.Namespace) -> DevlogConfig:
+    """Config file (if any) with CLI overrides applied; defaults otherwise."""
+    cfg = load_config() or DevlogConfig()
     if args.sources:
-        source_names = [s.strip() for s in args.sources.split(",") if s.strip()]
-    elif cfg:
-        source_names = list(cfg.sources)
-    else:
-        source_names = [s.strip() for s in DEFAULT_SOURCES.split(",") if s.strip()]
-
-    roots = {
-        "claude_code": args.claude_root
-        or (cfg.claude_root if cfg else "~/.claude"),
-        "codex": args.codex_root or (cfg.codex_root if cfg else "~/.codex"),
-        "cursor": args.cursor_root or (cfg.cursor_root if cfg else "~/.cursor"),
-    }
-    return source_names, roots
+        cfg.sources = [s.strip() for s in args.sources.split(",") if s.strip()]
+    if args.claude_root:
+        cfg.claude_root = args.claude_root
+    if args.codex_root:
+        cfg.codex_root = args.codex_root
+    if args.cursor_root:
+        cfg.cursor_root = args.cursor_root
+    return cfg
 
 
 def cmd_run(argv: list[str] | None = None) -> int:
@@ -75,16 +69,16 @@ def cmd_run(argv: list[str] | None = None) -> int:
     import devlog.sources  # noqa: F401
     from devlog.sources.base import get_sources
 
-    source_names, roots = _resolve_roots_and_sources(args)
+    cfg = _resolve_config(args)
     try:
-        sources = get_sources(source_names)
+        sources = get_sources(list(cfg.sources))
     except KeyError as exc:
         print(exc.args[0] if exc.args else str(exc))
         return 2
 
     raw_sessions: list[RawSession] = []
     for source in sources:
-        root = Path(roots.get(source.name, "~/.claude")).expanduser()
+        root = cfg.root_for(source.name)
         if not root.exists():
             if args.verbose:
                 print(f"[{source.name}] no data root at {root} — skipping")
@@ -97,7 +91,7 @@ def cmd_run(argv: list[str] | None = None) -> int:
     digests = slice_for_date(raw_sessions, target_date, tz)
 
     print(f"=== Found {len(digests)} session(s) for {target_date} ===\n")
-    post = generate_post(digests)
+    post = generate_post(digests, model=cfg.model)
     print("=== Daily post ===\n")
     print(post)
     print()

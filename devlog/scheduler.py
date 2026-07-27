@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -10,10 +11,32 @@ from pathlib import Path
 from devlog.config import DevlogConfig
 
 TASK_NAME = "DailyDevLogPublish"
+LOG_NAME = "publish.log"
 
 
 def _python_exe() -> str:
     return str(Path(sys.executable).resolve())
+
+
+def _app_data_dir() -> Path:
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    return Path(base) / "devlog"
+
+
+def build_wrapper_script(cfg: DevlogConfig, *, python_exe: str | None = None) -> str:
+    """Content of the .cmd the scheduled task runs.
+
+    A wrapper script sidesteps schtasks /TR quoting problems with paths that
+    contain spaces, and gives the run a log file (schtasks discards output).
+    """
+    repo = str(Path(cfg.repo_path).expanduser())
+    python = python_exe or _python_exe()
+    log = str(_app_data_dir() / LOG_NAME)
+    return (
+        "@echo off\r\n"
+        f'cd /d "{repo}"\r\n'
+        f'"{python}" -m devlog publish --date yesterday >> "{log}" 2>&1\r\n'
+    )
 
 
 def register_windows_task(cfg: DevlogConfig) -> str:
@@ -23,16 +46,11 @@ def register_windows_task(cfg: DevlogConfig) -> str:
     if not shutil.which("schtasks"):
         raise RuntimeError("schtasks not found on PATH")
 
-    # HH:MM → HH:MM:00
-    time_part = cfg.schedule_time.strip()
-    if len(time_part) == 5:
-        time_part = f"{time_part}:00"
+    app_dir = _app_data_dir()
+    app_dir.mkdir(parents=True, exist_ok=True)
+    script_path = app_dir / "run_publish.cmd"
+    script_path.write_text(build_wrapper_script(cfg), encoding="utf-8")
 
-    # Run: python -m devlog publish --date yesterday
-    # Working directory = repo_path so git operations land correctly.
-    tr = (
-        f'"{_python_exe()}" -m devlog publish --date yesterday'
-    )
     cmd = [
         "schtasks",
         "/Create",
@@ -42,18 +60,12 @@ def register_windows_task(cfg: DevlogConfig) -> str:
         "/SC",
         "DAILY",
         "/ST",
-        time_part[:5],
+        cfg.schedule_time.strip(),
         "/TR",
-        tr,
+        f'"{script_path}"',
         "/RL",
         "LIMITED",
     ]
-    # schtasks doesn't have a clean "start in" flag on all Windows versions;
-    # wrap via cmd /c cd /d repo && python ...
-    repo = str(Path(cfg.repo_path).expanduser())
-    wrapped = f'cmd /c "cd /d {repo} && {_python_exe()} -m devlog publish --date yesterday"'
-    cmd[cmd.index(tr)] = wrapped
-
     subprocess.run(cmd, check=True, capture_output=True, text=True)
     return TASK_NAME
 

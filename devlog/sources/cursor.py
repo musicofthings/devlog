@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 
 from devlog.models import RawSession, SessionEvent
@@ -39,9 +39,21 @@ def decode_cursor_project_folder(folder_name: str) -> str:
     return "/" + name.replace("-", "/")
 
 
-def _parse_embedded_timestamp(text: str) -> datetime | None:
-    from zoneinfo import ZoneInfo
+_UTC_OFFSET_RE = re.compile(r"UTC\s*([+-])\s*(\d{1,2})(?::(\d{2}))?", re.IGNORECASE)
 
+
+def _tz_from_hint(raw: str) -> tzinfo:
+    """Resolve a timezone from Cursor's '(UTC+5:30)'-style hint; default UTC."""
+    m = _UTC_OFFSET_RE.search(raw)
+    if not m:
+        return UTC
+    sign = 1 if m.group(1) == "+" else -1
+    hours = int(m.group(2))
+    minutes = int(m.group(3) or 0)
+    return timezone(sign * timedelta(hours=hours, minutes=minutes))
+
+
+def _parse_embedded_timestamp(text: str) -> datetime | None:
     m = _TIMESTAMP_RE.search(text)
     if not m:
         return None
@@ -51,24 +63,15 @@ def _parse_embedded_timestamp(text: str) -> datetime | None:
         raw_no_weekday = raw.split(",", 1)[1].strip()
     else:
         raw_no_weekday = raw
-    tz_hint = ""
     if "(" in raw_no_weekday:
-        body, _, rest = raw_no_weekday.partition("(")
-        raw_no_weekday = body.strip()
-        tz_hint = rest
+        raw_no_weekday = raw_no_weekday.partition("(")[0].strip()
 
     for fmt in ("%b %d, %Y, %I:%M %p", "%B %d, %Y, %I:%M %p"):
         try:
             dt = datetime.strptime(raw_no_weekday, fmt)
         except ValueError:
             continue
-        if "UTC+5:30" in raw or "UTC+5:30" in tz_hint or "Asia/Kolkata" in raw:
-            return dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
-        if "UTC" in tz_hint.upper() and "+" not in tz_hint and "-" not in tz_hint:
-            from datetime import UTC
-
-            return dt.replace(tzinfo=UTC)
-        return dt.replace(tzinfo=ZoneInfo("UTC"))
+        return dt.replace(tzinfo=_tz_from_hint(raw))
     return None
 
 

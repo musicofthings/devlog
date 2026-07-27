@@ -51,6 +51,49 @@ def test_malformed_line_skipped(tmp_path: Path):
     assert session.events[0].user_message == "hello codex"
 
 
+def test_total_token_usage_summed_as_deltas(tmp_path: Path):
+    """Cumulative total_token_usage must not be summed as-is across events."""
+    day = tmp_path / "sessions" / "2026" / "07" / "20"
+    day.mkdir(parents=True)
+    path = day / "rollout-totals.jsonl"
+
+    def token_event(minute: int, tokens_in: int, tokens_out: int) -> str:
+        return json.dumps(
+            {
+                "timestamp": f"2026-07-20T12:{minute:02d}:00Z",
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {
+                        "total_token_usage": {
+                            "input_tokens": tokens_in,
+                            "output_tokens": tokens_out,
+                            "cached_input_tokens": 0,
+                        }
+                    },
+                },
+            }
+        )
+
+    lines = [
+        json.dumps(
+            {
+                "timestamp": "2026-07-20T12:00:00Z",
+                "type": "event_msg",
+                "payload": {"type": "user_message", "message": "task"},
+            }
+        ),
+        token_event(1, 1000, 100),
+        token_event(2, 2500, 250),
+        token_event(3, 4000, 400),
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    session = parse_rollout_file(path)
+    assert session is not None
+    assert sum(e.tokens_in for e in session.events) == 4000
+    assert sum(e.tokens_out for e in session.events) == 400
+
+
 def test_skips_environment_chrome(tmp_path: Path):
     day = tmp_path / "sessions" / "2026" / "07" / "20"
     day.mkdir(parents=True)

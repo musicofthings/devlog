@@ -8,3 +8,8 @@ build/
 .venv/
 .superpowers/
 .devlog-*.md
+
+# Claude Code / context-engineering-kit session artifacts
+.claude/
+api_docs.md
+session_handover.md

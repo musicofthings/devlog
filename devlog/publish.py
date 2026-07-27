@@ -73,6 +73,12 @@ def _git_publish_auto(
     if commit.returncode != 0:
         raise RuntimeError(commit.stderr or commit.stdout or "git commit failed")
 
+    # Rebase onto the remote first so a scheduled push doesn't fail forever
+    # after the remote moved (e.g. an edit made on GitHub or another machine).
+    pull = git_run(["git", "pull", "--rebase", remote, branch], repo)
+    if pull.returncode != 0:
+        raise RuntimeError(pull.stderr or pull.stdout or "git pull --rebase failed")
+
     push = git_run(["git", "push", remote, branch], repo)
     if push.returncode != 0:
         raise RuntimeError(push.stderr or push.stdout or "git push failed")
@@ -89,7 +95,9 @@ def _git_publish_pr(
 ) -> None:
     gh_run = gh_run or _default_git
     branch = f"devlog/post-{day.isoformat()}"
-    checkout = git_run(["git", "checkout", "-B", branch], repo)
+    # Branch off the base branch explicitly. Branching off HEAD would stack
+    # each day's PR on the previous (possibly unmerged) devlog branch.
+    checkout = git_run(["git", "checkout", "-B", branch, base_branch], repo)
     if checkout.returncode != 0:
         raise RuntimeError(checkout.stderr or checkout.stdout or "git checkout failed")
 
@@ -131,6 +139,12 @@ def _git_publish_pr(
         if "already exists" not in err:
             raise RuntimeError(pr.stderr or pr.stdout or "gh pr create failed")
 
+    # Leave the repo back on the base branch so tomorrow's run (and the user)
+    # doesn't start from a leftover devlog branch.
+    back = git_run(["git", "checkout", base_branch], repo)
+    if back.returncode != 0:
+        raise RuntimeError(back.stderr or back.stdout or "git checkout base failed")
+
 
 def publish_day(
     cfg: DevlogConfig,
@@ -153,7 +167,7 @@ def publish_day(
         }
 
     digests = collect_digests(cfg, target)
-    body = generate_post(digests)
+    body = generate_post(digests, model=cfg.model)
 
     if dry_run:
         return {

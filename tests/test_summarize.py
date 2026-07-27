@@ -76,3 +76,20 @@ def test_clamp_sentences_caps_long_posts():
 
     long = "One. Two. Three. Four. Five. Six. Seven."
     assert _clamp_sentences(long, max_sentences=5) == "One. Two. Three. Four. Five."
+
+
+def test_clamp_sentences_keeps_decimals_intact():
+    from devlog.summarize import _clamp_sentences
+
+    text = "Spent 1.5 hours on the v2.3 parser. Ran pytest."
+    assert _clamp_sentences(text, max_sentences=2) == text
+    assert _clamp_sentences("Spent 1.5 hours. Two. Three.", max_sentences=1) == "Spent 1.5 hours."
+
+
+def test_template_handles_windows_paths():
+    sess = _sess()
+    sess.project_path = r"C:\Users\dev\code\variantgpt"
+    text = summarize_with_template([sess])
+    # Project name, not the whole backslashed path
+    assert "On variantgpt:" in text
+    assert r"C:\Users" not in text.replace("variantgpt", "")

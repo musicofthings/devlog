@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from devlog.config import (
+    DEFAULT_PUBLISH_MODE,
     DEFAULT_SOURCES,
     PUBLISH_MODES,
     DevlogConfig,
@@ -36,7 +37,7 @@ def build_config_from_prompts() -> DevlogConfig:
     repo_path = _prompt("repo_path (local git clone)", repo)
     publish_mode = _prompt(
         f"publish_mode ({'|'.join(PUBLISH_MODES)})",
-        "auto",
+        DEFAULT_PUBLISH_MODE,
     )
     schedule_time = _prompt("schedule_time (HH:MM local)", "06:30")
     remote = _prompt("remote", "origin")
@@ -61,7 +62,9 @@ def pages_checklist() -> str:
         "  2. Settings -> Pages -> Build and deployment -> Source: GitHub Actions.\n"
         "  3. After the first docs/ push, confirm https://<user>.github.io/devlog/\n"
         "  4. Ensure git/gh auth works for publish_mode=auto or pr.\n"
-        "\nPrivacy note: published posts include project paths from digests.\n"
+        "\nPrivacy note: published posts can include project paths AND the text of\n"
+        "your prompts to the AI tools. With publish_mode=auto they go public with\n"
+        "no review — keep 'manual' or 'pr' unless you accept that.\n"
     )
 
 
