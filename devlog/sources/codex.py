@@ -32,8 +32,17 @@ _PATH_RE = re.compile(
 _CMD_RE = re.compile(r'(?:command)\s*[:=]\s*["\']([^"\']+)["\']', re.IGNORECASE)
 
 
-def _parse_timestamp(ts: str) -> datetime:
+def _parse_timestamp(ts: object) -> datetime:
+    if not isinstance(ts, str):
+        raise ValueError("timestamp must be a string")
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def _as_int(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _is_chrome_user_text(text: str) -> bool:
@@ -162,16 +171,18 @@ def parse_rollout_file(path: Path) -> RawSession | None:
                         if cleaned:
                             events.append(SessionEvent(timestamp=ts, user_message=cleaned))
                 elif ptype == "token_count":
-                    info = payload.get("info") or {}
+                    info = payload.get("info")
+                    if not isinstance(info, dict):
+                        info = {}
                     last = info.get("last_token_usage")
                     total = info.get("total_token_usage")
                     if isinstance(last, dict):
                         events.append(
                             SessionEvent(
                                 timestamp=ts,
-                                tokens_in=int(last.get("input_tokens") or 0),
-                                tokens_out=int(last.get("output_tokens") or 0),
-                                tokens_cache_read=int(last.get("cached_input_tokens") or 0),
+                                tokens_in=_as_int(last.get("input_tokens")),
+                                tokens_out=_as_int(last.get("output_tokens")),
+                                tokens_cache_read=_as_int(last.get("cached_input_tokens")),
                             )
                         )
                         # Keep the cumulative baseline in sync even though this
@@ -181,13 +192,13 @@ def parse_rollout_file(path: Path) -> RawSession | None:
                         # counting tokens already reported here.
                         if isinstance(total, dict):
                             for key in prev_totals:
-                                prev_totals[key] = int(total.get(key) or 0)
+                                prev_totals[key] = _as_int(total.get(key))
                     elif isinstance(total, dict):
                         # total_token_usage is cumulative; summing it across
                         # events would inflate totals, so emit the delta.
                         deltas = {}
                         for key in prev_totals:
-                            cur = int(total.get(key) or 0)
+                            cur = _as_int(total.get(key))
                             deltas[key] = max(0, cur - prev_totals[key])
                             prev_totals[key] = cur
                         events.append(
@@ -252,7 +263,10 @@ class CodexParser:
 
         sessions: list[RawSession] = []
         for path in sorted(sessions_dir.rglob("rollout-*.jsonl")):
-            session = parse_rollout_file(path)
+            try:
+                session = parse_rollout_file(path)
+            except (OSError, UnicodeError):
+                continue
             if session is not None:
                 sessions.append(session)
         return sessions

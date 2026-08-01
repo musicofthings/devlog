@@ -15,6 +15,7 @@ from devlog.site import rebuild_site, write_post_markdown
 from devlog.summarize import generate_post
 
 GitRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
+MANAGED_PATHS = ("posts/", "docs/log/", "docs/.nojekyll", "docs/index.html")
 
 
 def _default_git(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -51,20 +52,53 @@ def collect_digests(cfg: DevlogConfig, target: date):
     return slice_for_date(raw, target, tz)
 
 
+def _git_paths(repo: Path, artifacts: list[Path]) -> list[str]:
+    """Return unique repo-relative paths suitable for pathspec-safe git calls."""
+    paths: list[str] = []
+    for artifact in artifacts:
+        try:
+            relative = artifact.resolve().relative_to(repo.resolve()).as_posix()
+        except ValueError as exc:
+            raise RuntimeError(f"Generated artifact is outside the repository: {artifact}") from exc
+        if relative not in paths:
+            paths.append(relative)
+    return paths
+
+
+def _ensure_managed_paths_clean(repo: Path, git_run: GitRunner) -> None:
+    """Refuse to sweep pre-existing drafts or edits into an automated commit."""
+    status = git_run(
+        ["git", "status", "--porcelain", "--untracked-files=all", "--", *MANAGED_PATHS],
+        repo,
+    )
+    if status.returncode != 0:
+        raise RuntimeError(status.stderr or status.stdout or "git status failed")
+    if status.stdout.strip():
+        raise RuntimeError(
+            "Managed publish paths already contain uncommitted changes; "
+            "review or commit them before publishing:\n" + status.stdout.strip()
+        )
+
+
 def _git_publish_auto(
     repo: Path,
     day: date,
+    artifacts: list[Path],
     *,
     remote: str,
     branch: str,
     git_run: GitRunner,
 ) -> None:
-    paths = ["posts/", "docs/log/", "docs/.nojekyll", "docs/index.html"]
+    paths = _git_paths(repo, artifacts)
+    if not paths:
+        return
     add = git_run(["git", "add", "--", *paths], repo)
     if add.returncode != 0:
         raise RuntimeError(add.stderr or add.stdout or "git add failed")
 
     status = git_run(["git", "status", "--porcelain", "--", *paths], repo)
+    if status.returncode != 0:
+        raise RuntimeError(status.stderr or status.stdout or "git status failed")
     if not status.stdout.strip():
         return  # nothing new
 
@@ -91,6 +125,7 @@ def _git_publish_auto(
 def _git_publish_pr(
     repo: Path,
     day: date,
+    artifacts: list[Path],
     *,
     remote: str,
     base_branch: str,
@@ -99,55 +134,68 @@ def _git_publish_pr(
 ) -> None:
     gh_run = gh_run or _default_git
     branch = f"devlog/post-{day.isoformat()}"
+    current = git_run(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo)
+    if current.returncode != 0:
+        raise RuntimeError(current.stderr or current.stdout or "git rev-parse failed")
+    original_branch = current.stdout.strip() or base_branch
     # Branch off the base branch explicitly. Branching off HEAD would stack
     # each day's PR on the previous (possibly unmerged) devlog branch.
     checkout = git_run(["git", "checkout", "-B", branch, base_branch], repo)
     if checkout.returncode != 0:
         raise RuntimeError(checkout.stderr or checkout.stdout or "git checkout failed")
 
-    paths = ["posts/", "docs/log/", "docs/.nojekyll", "docs/index.html"]
-    add = git_run(["git", "add", "--", *paths], repo)
-    if add.returncode != 0:
-        raise RuntimeError(add.stderr or add.stdout or "git add failed")
+    restore_error: RuntimeError | None = None
+    try:
+        paths = _git_paths(repo, artifacts)
+        add = git_run(["git", "add", "--", *paths], repo)
+        if add.returncode != 0:
+            raise RuntimeError(add.stderr or add.stdout or "git add failed")
 
-    status = git_run(["git", "status", "--porcelain", "--", *paths], repo)
-    if status.stdout.strip():
+        status = git_run(["git", "status", "--porcelain", "--", *paths], repo)
+        if status.returncode != 0:
+            raise RuntimeError(status.stderr or status.stdout or "git status failed")
+        if not status.stdout.strip():
+            raise RuntimeError("No generated changes to publish")
+
         msg = f"publish: devlog {day.isoformat()}"
         commit = git_run(["git", "commit", "-m", msg], repo)
         if commit.returncode != 0:
             raise RuntimeError(commit.stderr or commit.stdout or "git commit failed")
 
-    push = git_run(["git", "push", "-u", remote, branch], repo)
-    if push.returncode != 0:
-        raise RuntimeError(push.stderr or push.stdout or "git push failed")
+        push = git_run(["git", "push", "-u", remote, branch], repo)
+        if push.returncode != 0:
+            raise RuntimeError(push.stderr or push.stdout or "git push failed")
 
-    pr = gh_run(
-        [
-            "gh",
-            "pr",
-            "create",
-            "--base",
-            base_branch,
-            "--head",
-            branch,
-            "--title",
-            f"devlog {day.isoformat()}",
-            "--body",
-            f"Automated daily build log for {day.isoformat()}.",
-        ],
-        repo,
-    )
-    if pr.returncode != 0:
-        # PR may already exist; treat duplicate as soft success if message says so.
-        err = (pr.stderr or pr.stdout or "").lower()
-        if "already exists" not in err:
-            raise RuntimeError(pr.stderr or pr.stdout or "gh pr create failed")
+        pr = gh_run(
+            [
+                "gh",
+                "pr",
+                "create",
+                "--base",
+                base_branch,
+                "--head",
+                branch,
+                "--title",
+                f"devlog {day.isoformat()}",
+                "--body",
+                f"Automated daily build log for {day.isoformat()}.",
+            ],
+            repo,
+        )
+        if pr.returncode != 0:
+            # PR may already exist; treat duplicate as soft success if message says so.
+            err = (pr.stderr or pr.stdout or "").lower()
+            if "already exists" not in err:
+                raise RuntimeError(pr.stderr or pr.stdout or "gh pr create failed")
+    finally:
+        back = git_run(["git", "checkout", original_branch], repo)
+        if back.returncode != 0:
+            restore_error = RuntimeError(
+                back.stderr or back.stdout or "git checkout original branch failed"
+            )
 
-    # Leave the repo back on the base branch so tomorrow's run (and the user)
-    # doesn't start from a leftover devlog branch.
-    back = git_run(["git", "checkout", base_branch], repo)
-    if back.returncode != 0:
-        raise RuntimeError(back.stderr or back.stdout or "git checkout base failed")
+    if restore_error is not None:
+        raise restore_error
 
 
 def publish_day(
@@ -170,8 +218,20 @@ def publish_day(
             "post_path": str(post_path),
         }
 
+    if not dry_run:
+        if not repo.is_dir():
+            raise RuntimeError(f"Configured repository does not exist: {repo}")
+        if cfg.publish_mode in {"auto", "pr"}:
+            if not (repo / ".git").exists():
+                raise RuntimeError(f"Configured repository is not a git checkout: {repo}")
+            _ensure_managed_paths_clean(repo, git_run)
+
     digests = collect_digests(cfg, target)
-    body = generate_post(digests, model=cfg.model)
+    body = generate_post(
+        digests,
+        model=cfg.model,
+        allow_external_api=cfg.allow_external_api,
+    )
 
     if dry_run:
         return {
@@ -184,6 +244,7 @@ def publish_day(
 
     write_post_markdown(posts_dir, target, body, force=force)
     written = rebuild_site(repo)
+    artifacts = [post_path, *written]
 
     result = {
         "status": "written",
@@ -204,6 +265,7 @@ def publish_day(
         _git_publish_auto(
             repo,
             target,
+            artifacts,
             remote=cfg.remote,
             branch=cfg.branch,
             git_run=git_run,
@@ -215,6 +277,7 @@ def publish_day(
         _git_publish_pr(
             repo,
             target,
+            artifacts,
             remote=cfg.remote,
             base_branch=cfg.branch,
             git_run=git_run,
@@ -249,7 +312,11 @@ def cmd_publish(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     cfg_path = args.config or default_config_path()
-    cfg = load_config(cfg_path)
+    try:
+        cfg = load_config(cfg_path)
+    except (OSError, ValueError) as exc:
+        print(f"Could not load config at {cfg_path}: {exc}")
+        return 2
     if cfg is None:
         print(f"No config at {cfg_path}. Run: devlog init")
         return 2
@@ -271,13 +338,15 @@ def cmd_publish(argv: list[str] | None = None) -> int:
         print(f"Publish failed: {exc}")
         return 1
 
-    if args.verbose or args.dry_run:
+    if args.dry_run:
+        if args.verbose:
+            details = {key: value for key, value in outcome.items() if key != "post"}
+            print(details)
+        print(outcome.get("post", ""))
+    elif args.verbose:
         print(outcome)
     else:
         print(f"{outcome.get('status')}: {outcome.get('date', target.isoformat())}")
         if outcome.get("next_steps"):
             print(outcome["next_steps"])
-        if args.dry_run and outcome.get("post"):
-            print()
-            print(outcome["post"])
     return 0

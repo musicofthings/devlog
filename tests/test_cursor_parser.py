@@ -45,6 +45,12 @@ def test_embedded_timestamp_generic_utc_offsets():
     assert dt is not None
     assert dt.tzinfo == UTC
 
+    invalid = _parse_embedded_timestamp(
+        "<timestamp>Monday, Jul 20, 2026, 1:00 PM (UTC+99:99)</timestamp>x"
+    )
+    assert invalid is not None
+    assert invalid.tzinfo == UTC
+
 
 def test_malformed_line_skipped(tmp_path: Path):
     proj = tmp_path / "projects" / "c-Users-dev-code-x"

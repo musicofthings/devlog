@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from devlog.digest import build_raw_digest, slice_for_date
+from devlog.digest import build_raw_digest, slice_for_date, total_active_minutes
 from devlog.models import RawSession, SessionEvent
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -42,7 +42,52 @@ def test_midnight_spanning_session_splits_without_double_count():
     assert day2[0].user_messages == ["after midnight"]
     assert day1[0].tokens_in == 100
     assert day2[0].tokens_in == 40
-    assert abs(day1[0].duration_minutes + day2[0].duration_minutes - 60.0) < 0.01
+    # The 35-minute gap around midnight exceeds the idle cutoff and is not
+    # reported as active work.
+    assert abs(day1[0].duration_minutes + day2[0].duration_minutes - 25.0) < 0.01
+
+
+def test_idle_middle_day_is_not_reported_as_activity():
+    first = datetime(2026, 7, 21, 23, 0, tzinfo=IST)
+    last = datetime(2026, 7, 23, 9, 0, tzinfo=IST)
+    raw = RawSession(
+        session_id="idle-gap",
+        project_path="/proj",
+        source="codex",
+        start_time=first,
+        end_time=last,
+        events=[_ev(first, user_message="start"), _ev(last, user_message="resume")],
+    )
+
+    assert slice_for_date([raw], date(2026, 7, 22), IST) == []
+
+
+def test_total_active_minutes_unions_overlapping_sessions():
+    from devlog.models import SessionDigest
+
+    start = datetime(2026, 7, 22, 9, 0, tzinfo=UTC)
+    a = SessionDigest(
+        "a",
+        "/p1",
+        "codex",
+        start,
+        start + timedelta(minutes=10),
+        active_minutes=10,
+        active_intervals=[(start, start + timedelta(minutes=10))],
+    )
+    b = SessionDigest(
+        "b",
+        "/p2",
+        "cursor",
+        start + timedelta(minutes=5),
+        start + timedelta(minutes=15),
+        active_minutes=10,
+        active_intervals=[
+            (start + timedelta(minutes=5), start + timedelta(minutes=15))
+        ],
+    )
+
+    assert total_active_minutes([a, b]) == 15
 
 
 def test_no_overlap_returns_empty():

@@ -64,8 +64,17 @@ def resolve_project_path(cwd: str | None, files: list[str], folder_name: str) ->
     return folder_decoded
 
 
-def _parse_timestamp(ts: str) -> datetime:
+def _parse_timestamp(ts: object) -> datetime:
+    if not isinstance(ts, str):
+        raise ValueError("timestamp must be a string")
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def _as_int(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def parse_session_file(path: Path) -> RawSession | None:
@@ -95,7 +104,7 @@ def parse_session_file(path: Path) -> RawSession | None:
 
             if cwd is None:
                 ev_cwd = event.get("cwd")
-                if ev_cwd:
+                if isinstance(ev_cwd, str) and ev_cwd:
                     cwd = ev_cwd
 
             ts_raw = event.get("timestamp")
@@ -103,7 +112,7 @@ def parse_session_file(path: Path) -> RawSession | None:
                 continue
             try:
                 ts = _parse_timestamp(ts_raw)
-            except ValueError:
+            except (TypeError, ValueError):
                 continue
             timestamps.append(ts)
 
@@ -120,17 +129,19 @@ def parse_session_file(path: Path) -> RawSession | None:
                 elif isinstance(content, list):
                     for block in content:
                         if isinstance(block, dict) and block.get("type") == "text":
-                            text = block.get("text", "").strip()
-                            if text:
-                                texts.append(text)
+                            text = block.get("text")
+                            if isinstance(text, str) and text.strip():
+                                texts.append(text.strip())
                 for text in texts:
                     events.append(SessionEvent(timestamp=ts, user_message=text))
 
             elif etype == "assistant":
-                usage = msg.get("usage") or {}
-                tokens_in = usage.get("input_tokens", 0)
-                tokens_out = usage.get("output_tokens", 0)
-                tokens_cache_read = usage.get("cache_read_input_tokens", 0)
+                usage = msg.get("usage")
+                if not isinstance(usage, dict):
+                    usage = {}
+                tokens_in = _as_int(usage.get("input_tokens"))
+                tokens_out = _as_int(usage.get("output_tokens"))
+                tokens_cache_read = _as_int(usage.get("cache_read_input_tokens"))
 
                 content = msg.get("content", [])
                 tool_blocks: list[dict] = []
@@ -156,10 +167,16 @@ def parse_session_file(path: Path) -> RawSession | None:
                     # tool call, so attach it only to the first tool event to
                     # avoid multiplying totals when a turn makes several calls.
                     for i, block in enumerate(tool_blocks):
-                        name = block.get("name", "unknown_tool")
-                        tool_input = block.get("input") or {}
+                        name = block.get("name")
+                        if not isinstance(name, str) or not name:
+                            name = "unknown_tool"
+                        tool_input = block.get("input")
+                        if not isinstance(tool_input, dict):
+                            tool_input = {}
                         fp = tool_input.get("file_path")
                         cmd = tool_input.get("command")
+                        fp = fp if isinstance(fp, str) else None
+                        cmd = cmd if isinstance(cmd, str) else None
                         if fp:
                             files_seen.append(fp)
                         events.append(
@@ -204,7 +221,10 @@ class ClaudeCodeParser:
             if not project_folder.is_dir():
                 continue
             for session_file in sorted(project_folder.glob("*.jsonl")):
-                session = parse_session_file(session_file)
+                try:
+                    session = parse_session_file(session_file)
+                except (OSError, UnicodeError):
+                    continue
                 if session is not None:
                     sessions.append(session)
 

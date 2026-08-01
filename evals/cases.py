@@ -56,7 +56,7 @@ def run_e2e_2026_07_22_template(*, live: bool = False) -> EvalResult:
     result.add("has_sessions", len(digests) >= 2, f"n={len(digests)}")
 
     if live:
-        post = generate_post(digests)
+        post = generate_post(digests, allow_external_api=True)
         result.add(
             "live_generate_ok", bool(post.strip()), "empty post" if not post.strip() else "ok"
         )
@@ -78,7 +78,7 @@ def run_e2e_2026_07_22_template(*, live: bool = False) -> EvalResult:
         post = summarize_with_template(digests)
         for c in check_style(post, max_words=120):
             result.checks.append(c)
-        result.checks.append(check_sentence_range(post, min_s=1, max_s=8))
+        result.checks.append(check_sentence_range(post, min_s=3, max_s=5))
         for c in check_groundedness(
             post,
             digests,

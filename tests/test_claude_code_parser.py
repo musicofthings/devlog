@@ -52,6 +52,38 @@ def test_malformed_line_skipped(tmp_path: Path):
     assert raw[0].events[0].user_message == "ok"
 
 
+def test_valid_json_with_invalid_field_types_is_skipped(tmp_path: Path):
+    proj = tmp_path / "projects" / "-Users-dev-code-x"
+    proj.mkdir(parents=True)
+    lines = [
+        {"type": "user", "timestamp": 123, "message": {"content": "bad timestamp"}},
+        {
+            "type": "user",
+            "timestamp": "2026-07-22T10:00:00Z",
+            "cwd": ["not", "a", "path"],
+            "message": {"content": "valid task"},
+        },
+        {
+            "type": "assistant",
+            "timestamp": "2026-07-22T10:01:00Z",
+            "message": {
+                "usage": "not-a-dict",
+                "content": [{"type": "tool_use", "name": None, "input": "bad"}],
+            },
+        },
+    ]
+    (proj / "s.jsonl").write_text(
+        "\n".join(json.dumps(line) for line in lines) + "\n",
+        encoding="utf-8",
+    )
+
+    sessions = ClaudeCodeParser().iter_sessions(tmp_path)
+
+    assert len(sessions) == 1
+    assert any(event.user_message == "valid task" for event in sessions[0].events)
+    assert any(event.tool_name == "unknown_tool" for event in sessions[0].events)
+
+
 def test_resolve_path_fallback_order():
     assert (
         resolve_project_path(

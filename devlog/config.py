@@ -47,6 +47,7 @@ class DevlogConfig:
     remote: str = "origin"
     branch: str = "main"
     model: str = DEFAULT_MODEL
+    allow_external_api: bool = False
 
     def __post_init__(self) -> None:
         self.claude_root = _norm_path(self.claude_root)
@@ -73,6 +74,8 @@ class DevlogConfig:
             raise ValueError(
                 f"schedule_time must be HH:MM (24-hour); got {self.schedule_time!r}"
             )
+        if not isinstance(self.allow_external_api, bool):
+            raise ValueError("allow_external_api must be true or false")
 
 
 def load_config(path: Path | None = None) -> DevlogConfig | None:
@@ -92,6 +95,7 @@ def load_config(path: Path | None = None) -> DevlogConfig | None:
         remote=str(data.get("remote", "origin")),
         branch=str(data.get("branch", "main")),
         model=str(data.get("model", DEFAULT_MODEL)),
+        allow_external_api=data.get("allow_external_api", False),
     )
     cfg.validate()
     return cfg
@@ -118,6 +122,7 @@ def save_config(cfg: DevlogConfig, path: Path | None = None) -> Path:
         f"remote = {_toml_str(cfg.remote)}\n"
         f"branch = {_toml_str(cfg.branch)}\n"
         f"model = {_toml_str(cfg.model)}\n"
+        f"allow_external_api = {'true' if cfg.allow_external_api else 'false'}\n"
     )
     cfg_path.write_text(body, encoding="utf-8")
     return cfg_path

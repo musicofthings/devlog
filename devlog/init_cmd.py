@@ -28,6 +28,14 @@ def _prompt_list(label: str, default: list[str]) -> list[str]:
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 
+def _prompt_bool(label: str, default: bool = False) -> bool:
+    default_text = "yes" if default else "no"
+    raw = _prompt(label, default_text).lower()
+    if raw not in {"y", "yes", "true", "n", "no", "false"}:
+        raise ValueError(f"{label} must be yes or no")
+    return raw in {"y", "yes", "true"}
+
+
 def build_config_from_prompts() -> DevlogConfig:
     repo = str(default_repo_path()).replace("\\", "/")
     sources = _prompt_list("sources (comma-separated)", list(DEFAULT_SOURCES))
@@ -42,6 +50,9 @@ def build_config_from_prompts() -> DevlogConfig:
     schedule_time = _prompt("schedule_time (HH:MM local)", "06:30")
     remote = _prompt("remote", "origin")
     branch = _prompt("branch", "main")
+    allow_external_api = _prompt_bool(
+        "allow transcript text to be sent to an external API? (yes|no)", False
+    )
     return DevlogConfig(
         sources=sources,
         claude_root=claude_root,
@@ -52,6 +63,7 @@ def build_config_from_prompts() -> DevlogConfig:
         schedule_time=schedule_time,
         remote=remote,
         branch=branch,
+        allow_external_api=allow_external_api,
     )
 
 
@@ -99,7 +111,11 @@ def cmd_init(argv: list[str] | None = None) -> int:
         cfg = DevlogConfig()
     else:
         print("Daily Dev Log setup — press Enter to accept defaults.\n")
-        cfg = build_config_from_prompts()
+        try:
+            cfg = build_config_from_prompts()
+        except ValueError as exc:
+            print(f"Invalid config: {exc}")
+            return 2
 
     try:
         cfg.validate()
@@ -120,7 +136,7 @@ def cmd_init(argv: list[str] | None = None) -> int:
 
     if do_schedule:
         try:
-            task_name = register_windows_task(cfg)
+            task_name = register_windows_task(cfg, config_path=saved)
             print(f"Scheduled task registered: {task_name}")
         except Exception as exc:  # noqa: BLE001
             print(f"[warn] Could not register scheduled task: {exc}")

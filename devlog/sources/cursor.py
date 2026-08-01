@@ -50,6 +50,8 @@ def _tz_from_hint(raw: str) -> tzinfo:
     sign = 1 if m.group(1) == "+" else -1
     hours = int(m.group(2))
     minutes = int(m.group(3) or 0)
+    if hours > 23 or minutes > 59:
+        return UTC
     return timezone(sign * timedelta(hours=hours, minutes=minutes))
 
 
@@ -204,7 +206,10 @@ class CursorParser:
             if not transcripts.is_dir():
                 continue
             for path in sorted(transcripts.rglob("*.jsonl")):
-                session = parse_transcript_file(path, project_folder.name)
+                try:
+                    session = parse_transcript_file(path, project_folder.name)
+                except (OSError, UnicodeError):
+                    continue
                 if session is not None:
                     sessions.append(session)
         return sessions

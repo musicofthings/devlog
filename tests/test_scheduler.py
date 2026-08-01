@@ -15,3 +15,12 @@ def test_wrapper_script_logs_output():
     assert ">>" in script
     assert "publish.log" in script
     assert "2>&1" in script
+
+
+def test_wrapper_script_uses_custom_config_path(tmp_path):
+    cfg = DevlogConfig(repo_path=str(tmp_path), publish_mode="manual")
+    config_path = tmp_path / "custom config.toml"
+
+    script = build_wrapper_script(cfg, python_exe="python", config_path=config_path)
+
+    assert f'--config "{config_path.resolve()}"' in script

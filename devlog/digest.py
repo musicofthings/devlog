@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, tzinfo
 
-from devlog.models import RawSession, SessionDigest
+from devlog.models import RawSession, SessionDigest, SessionEvent
+from devlog.privacy import redact_sensitive_text
+
+ACTIVE_IDLE_CUTOFF = timedelta(minutes=30)
 
 
 def day_bounds(target_date: date, tz: tzinfo) -> tuple[datetime, datetime]:
@@ -19,28 +22,32 @@ def slice_for_date(
 ) -> list[SessionDigest]:
     """Clip each session to the portion overlapping target_date in tz.
 
-    Midnight-spanning sessions are split: events/time outside [day_start, day_end)
-    are excluded, so calling this for consecutive days never double-counts.
+    Midnight-spanning sessions are split and only dates with actual events are
+    emitted. Active time is the union of intervals between nearby events; gaps
+    longer than ACTIVE_IDLE_CUTOFF are treated as idle rather than work.
     """
     day_start, day_end = day_bounds(target_date, tz)
     out: list[SessionDigest] = []
     for raw in sessions:
         # Normalize event times to tz for comparison
         events = [e for e in raw.events if day_start <= e.timestamp.astimezone(tz) < day_end]
+        if not events:
+            continue
         sess_start = raw.start_time.astimezone(tz)
         sess_end = raw.end_time.astimezone(tz)
-        if sess_end <= day_start or sess_start >= day_end:
-            continue
         clipped_start = max(sess_start, day_start)
         clipped_end = min(sess_end, day_end)
-        if clipped_end <= clipped_start and not events:
-            continue
+        intervals = _active_intervals_for_day(raw.events, day_start, day_end, tz)
         digest = SessionDigest(
             session_id=raw.session_id,
             project_path=raw.project_path,
             source=raw.source,
             start_time=clipped_start,
             end_time=clipped_end if clipped_end > clipped_start else clipped_start,
+            active_minutes=sum(
+                (end - start).total_seconds() / 60.0 for start, end in intervals
+            ),
+            active_intervals=intervals,
         )
         for e in events:
             if e.user_message:
@@ -56,6 +63,50 @@ def slice_for_date(
             digest.tokens_cache_read += e.tokens_cache_read
         out.append(digest)
     return sorted(out, key=lambda s: s.start_time)
+
+
+def _active_intervals_for_day(
+    events: list[SessionEvent],
+    day_start: datetime,
+    day_end: datetime,
+    tz: tzinfo,
+) -> list[tuple[datetime, datetime]]:
+    """Return non-idle event intervals clipped to one local calendar day."""
+    timestamps = sorted({event.timestamp.astimezone(tz) for event in events})
+    intervals: list[tuple[datetime, datetime]] = []
+    for start, end in zip(timestamps, timestamps[1:], strict=False):
+        gap = end - start
+        if gap <= timedelta(0) or gap > ACTIVE_IDLE_CUTOFF:
+            continue
+        clipped_start = max(start, day_start)
+        clipped_end = min(end, day_end)
+        if clipped_end > clipped_start:
+            intervals.append((clipped_start, clipped_end))
+    return intervals
+
+
+def total_active_minutes(sessions: list[SessionDigest]) -> float:
+    """Return active minutes without double-counting overlapping sessions."""
+    intervals: list[tuple[datetime, datetime]] = []
+    standalone_minutes = 0.0
+    for session in sessions:
+        if session.active_intervals:
+            intervals.extend(session.active_intervals)
+        elif session.active_minutes is not None:
+            standalone_minutes += session.duration_minutes
+        elif session.end_time > session.start_time:
+            intervals.append((session.start_time, session.end_time))
+
+    merged: list[tuple[datetime, datetime]] = []
+    for start, end in sorted(intervals):
+        if merged and start <= merged[-1][1]:
+            previous_start, previous_end = merged[-1]
+            merged[-1] = (previous_start, max(previous_end, end))
+        else:
+            merged.append((start, end))
+    return standalone_minutes + sum(
+        (end - start).total_seconds() / 60.0 for start, end in merged
+    )
 
 
 def basename(path: str) -> str:
@@ -85,35 +136,44 @@ def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) ->
     cmd_len = 80 if compact else None
 
     lines: list[str] = []
-    total_minutes = sum(s.duration_minutes for s in sessions)
+    total_minutes = total_active_minutes(sessions)
     if compact:
-        projects = sorted({basename(s.project_path) for s in sessions})
+        projects = sorted(
+            {redact_sensitive_text(basename(s.project_path)) for s in sessions}
+        )
         lines.append(f"{total_minutes:.0f} min, {len(sessions)} session(s): {', '.join(projects)}")
     else:
-        projects = sorted({s.project_path for s in sessions})
+        projects = sorted({redact_sensitive_text(s.project_path) for s in sessions})
         lines.append(
             f"Total active time: {total_minutes:.0f} minutes across {len(sessions)} session(s)."
         )
         lines.append(f"Projects touched: {', '.join(projects)}")
 
     for s in sessions:
-        label = basename(s.project_path) if compact else s.project_path
+        label = (
+            redact_sensitive_text(basename(s.project_path))
+            if compact
+            else redact_sensitive_text(s.project_path)
+        )
         if compact:
             lines.append(f"\n[{label}, {s.duration_minutes:.0f}m, src={s.source}]")
         else:
             lines.append(
-                f"\n[Project: {s.project_path}, {s.duration_minutes:.0f} min, source={s.source}]"
+                f"\n[Project: {label}, {s.duration_minutes:.0f} min, source={s.source}]"
             )
 
         if s.user_messages:
             tasks = s.user_messages[:max_tasks] if max_tasks is not None else s.user_messages
+            tasks = [redact_sensitive_text(task) for task in tasks]
             if task_len is not None:
                 tasks = [_clip(t, task_len) for t in tasks]
             task_prefix = "  Tasks: " if compact else "  Tasks requested: "
             lines.append(task_prefix + " | ".join(tasks))
 
         if s.tool_calls:
-            tool_summary = ", ".join(f"{k} x{v}" for k, v in s.tool_calls.items())
+            tool_summary = ", ".join(
+                f"{redact_sensitive_text(k)} x{v}" for k, v in s.tool_calls.items()
+            )
             lines.append(f"  Tools: {tool_summary}" if compact else f"  Tools used: {tool_summary}")
 
         if s.files_touched:
@@ -122,11 +182,13 @@ def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) ->
                 files = files[:max_files]
             if compact:
                 files = [basename(f) for f in files]
+            files = [redact_sensitive_text(file) for file in files]
             prefix = "  Files: " if compact else "  Files touched: "
             lines.append(prefix + ", ".join(files))
 
         if s.bash_commands:
             cmds = s.bash_commands[:max_cmds] if max_cmds is not None else s.bash_commands
+            cmds = [redact_sensitive_text(cmd) for cmd in cmds]
             if cmd_len is not None:
                 cmds = [_clip(c, cmd_len) for c in cmds]
             prefix = "  Cmds: " if compact else "  Commands run: "

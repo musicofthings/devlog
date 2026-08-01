@@ -13,3 +13,7 @@ build/
 .claude/
 api_docs.md
 session_handover.md
+
+# CodeFerret review artifacts
+.ferret/
+codeferret_actions_outcomes.md

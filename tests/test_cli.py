@@ -42,6 +42,28 @@ def test_write_creates_file(tmp_path: Path, monkeypatch):
     assert (tmp_path / "devlog-2026-07-22.md").exists()
 
 
+def test_write_refuses_to_overwrite_edited_post(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    existing = tmp_path / "devlog-2026-07-22.md"
+    existing.write_text("manually edited\n", encoding="utf-8")
+
+    code = main(["--date", "2026-07-22"])
+
+    assert code == 1
+    assert existing.read_text(encoding="utf-8") == "manually edited\n"
+
+
+def test_force_replaces_existing_post(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    existing = tmp_path / "devlog-2026-07-22.md"
+    existing.write_text("old\n", encoding="utf-8")
+
+    code = main(["--date", "2026-07-22", "--force"])
+
+    assert code == 0
+    assert existing.read_text(encoding="utf-8").startswith("# 2026-07-22")
+
+
 def test_unknown_source_exits_2(capsys):
     code = main(["--sources", "nope", "--dry-run", "--date", "2026-07-22"])
     assert code == 2

@@ -31,6 +31,14 @@ def test_generate_post_falls_back_without_key(monkeypatch):
     assert "variantgpt" in text
 
 
+def test_external_api_requires_explicit_opt_in(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    with patch("devlog.summarize.summarize_with_claude") as mocked:
+        text = generate_post([_sess()])
+    mocked.assert_not_called()
+    assert "variantgpt" in text
+
+
 def test_generate_post_uses_claude_when_key_set(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     fake = (
@@ -39,7 +47,7 @@ def test_generate_post_uses_claude_when_key_set(monkeypatch):
         "Also sketched a progress bar for large files."
     )
     with patch("devlog.summarize.summarize_with_claude", return_value=fake) as mocked:
-        text = generate_post([_sess()])
+        text = generate_post([_sess()], allow_external_api=True)
     mocked.assert_called_once()
     assert text == fake
     assert len(text.split()) <= 120
@@ -49,14 +57,14 @@ def test_generate_post_uses_claude_when_key_set(monkeypatch):
 def test_claude_failure_falls_back(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     with patch("devlog.summarize.summarize_with_claude", side_effect=RuntimeError("boom")):
-        text = generate_post([_sess()])
+        text = generate_post([_sess()], allow_external_api=True)
     assert "variantgpt" in text
 
 
 def test_empty_day_skips_claude_api(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     with patch("devlog.summarize.summarize_with_claude") as mocked:
-        text = generate_post([])
+        text = generate_post([], allow_external_api=True)
     mocked.assert_not_called()
     assert text == "No coding activity logged today."
 
@@ -64,7 +72,7 @@ def test_empty_day_skips_claude_api(monkeypatch):
 def test_generate_post_sends_compact_digest(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     with patch("devlog.summarize.summarize_with_claude", return_value="ok.") as mocked:
-        generate_post([_sess()])
+        generate_post([_sess()], allow_external_api=True)
     digest_arg = mocked.call_args.args[0]
     assert "source=" not in digest_arg
     assert "variantgpt" in digest_arg
@@ -91,5 +99,20 @@ def test_template_handles_windows_paths():
     sess.project_path = r"C:\Users\dev\code\variantgpt"
     text = summarize_with_template([sess])
     # Project name, not the whole backslashed path
-    assert "On variantgpt:" in text
+    assert "variantgpt: Refactor" in text
     assert r"C:\Users" not in text.replace("variantgpt", "")
+
+
+def test_template_is_bounded_for_many_sessions():
+    sessions = []
+    for index in range(10):
+        session = _sess()
+        session.session_id = str(index)
+        session.project_path = f"/projects/p{index}"
+        session.user_messages = [f"Implement task {index}. This second sentence should be removed."]
+        sessions.append(session)
+
+    text = summarize_with_template(sessions)
+
+    assert len([part for part in text.split(".") if part.strip()]) == 3
+    assert len(text.split()) <= 120

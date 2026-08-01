@@ -51,6 +51,35 @@ def test_malformed_line_skipped(tmp_path: Path):
     assert session.events[0].user_message == "hello codex"
 
 
+def test_invalid_token_shapes_do_not_abort_rollout(tmp_path: Path):
+    day = tmp_path / "sessions" / "2026" / "07" / "20"
+    day.mkdir(parents=True)
+    path = day / "rollout-invalid-shape.jsonl"
+    lines = [
+        {
+            "timestamp": 123,
+            "type": "event_msg",
+            "payload": {"type": "user_message", "message": "bad timestamp"},
+        },
+        {
+            "timestamp": "2026-07-20T12:00:00Z",
+            "type": "event_msg",
+            "payload": {"type": "token_count", "info": "bad"},
+        },
+        {
+            "timestamp": "2026-07-20T12:01:00Z",
+            "type": "event_msg",
+            "payload": {"type": "user_message", "message": "valid task"},
+        },
+    ]
+    path.write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
+
+    session = parse_rollout_file(path)
+
+    assert session is not None
+    assert [event.user_message for event in session.events if event.user_message] == ["valid task"]
+
+
 def test_total_token_usage_summed_as_deltas(tmp_path: Path):
     """Cumulative total_token_usage must not be summed as-is across events."""
     day = tmp_path / "sessions" / "2026" / "07" / "20"

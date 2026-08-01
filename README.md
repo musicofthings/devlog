@@ -10,12 +10,12 @@ Turns local AI coding session history into one short, factual, first-person
 
 | Suite | Result |
 |-------|--------|
-| `pytest` | **54 passed** |
+| `pytest` | **70 passed** |
 | Offline evals (`python -m evals.run`) | **8/8 passed** |
 | Live evals (`python -m evals.run --live`) | **8/8 passed** |
 
-Token-efficient Claude path: compact digests with `src=` tags, `max_tokens=120`,
-empty-day API skip, 5-sentence output clamp.
+Token-efficient Claude path: compact, redacted digests with `src=` tags,
+empty-day API skip, explicit external-API consent, and a 5-sentence output clamp.
 
 ## Layout
 
@@ -62,11 +62,15 @@ python main.py --date 2026-07-20 --sources codex,cursor \
 Against real local logs:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...   # optional; template fallback without it
-python main.py --date today --dry-run --verbose
+export ANTHROPIC_API_KEY=sk-ant-...   # optional
+python main.py --date today --dry-run --verbose --allow-external-api
 ```
 
-Writes `devlog-YYYY-MM-DD.md` unless `--dry-run` is set.
+External API use is disabled by default even when a key is present. Enable it
+with `--allow-external-api` for a run or set `allow_external_api = true` in the
+config file. Transcript-derived text is redacted before it leaves the local
+pipeline. Writes `devlog-YYYY-MM-DD.md` unless `--dry-run` is set, and refuses
+to replace an existing post unless `--force` is supplied.
 
 ### CLI flags
 
@@ -79,6 +83,8 @@ Writes `devlog-YYYY-MM-DD.md` unless `--dry-run` is set.
 | `--cursor-root` | `~/.cursor` | Cursor data root (agent transcripts) |
 | `--sample-mode` | off | Optional/legacy; Claude sample layout is auto-detected |
 | `--dry-run` | off | Print post; do not write `devlog-*.md` |
+| `--force` | off | Replace an existing generated post |
+| `--allow-external-api` | off | Permit redacted transcript text to be sent to the model API |
 | `--verbose` | off | Extra diagnostics per source |
 
 Missing roots are skipped (other sources still run).
@@ -87,7 +93,7 @@ Missing roots are skipped (other sources still run).
 
 ```bash
 python -m pytest
-# expected: 54 passed
+# expected: 70 passed
 ```
 
 ## Evals

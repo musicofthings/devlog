@@ -132,9 +132,8 @@ def check_style(post: str, *, max_words: int = 120) -> list[CheckResult]:
     return results
 
 
-def check_sentence_range(post: str, *, min_s: int = 1, max_s: int = 8) -> CheckResult:
-    """Template posts are often 1–3 compact sentences; live Claude targets 3–5.
-    Default range is intentionally wide for offline template evals."""
+def check_sentence_range(post: str, *, min_s: int = 3, max_s: int = 5) -> CheckResult:
+    """Posts target the same compact 3–5 sentence range in all modes."""
     n = _sentence_count(post)
     return CheckResult(
         "sentence_range",

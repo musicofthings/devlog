@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from devlog.config import DevlogConfig, load_config, save_config
 from devlog.init_cmd import cmd_init
-from devlog.publish import publish_day, resolve_publish_date
+from devlog.publish import cmd_publish, publish_day, resolve_publish_date
 from devlog.site import list_posts, rebuild_site, write_post_markdown
 
 
@@ -39,22 +41,27 @@ def test_config_windows_paths_roundtrip(tmp_path: Path):
         cursor_root=r"C:\Users\shibi\.cursor",
         repo_path=r"C:\Users\shibi\Projects\devlog",
         publish_mode="manual",
+        allow_external_api=True,
     )
     save_config(cfg, path)
     loaded = load_config(path)
     assert loaded is not None
     assert loaded.claude_root == "C:/Users/shibi/.claude"
     assert loaded.repo_path == "C:/Users/shibi/Projects/devlog"
+    assert loaded.allow_external_api is True
 
 
 def test_config_rejects_bad_schedule_time(tmp_path: Path):
-    import pytest
-
     with pytest.raises(ValueError):
         DevlogConfig(schedule_time="6.30").validate()
     with pytest.raises(ValueError):
         DevlogConfig(schedule_time="25:00").validate()
     DevlogConfig(schedule_time="06:30").validate()
+
+
+def test_config_rejects_non_boolean_external_api_flag():
+    with pytest.raises(ValueError, match="allow_external_api"):
+        DevlogConfig(allow_external_api="yes").validate()  # type: ignore[arg-type]
 
 
 def test_resolve_publish_date():
@@ -131,6 +138,7 @@ def test_publish_manual_writes(tmp_path: Path):
 def test_publish_auto_calls_git(tmp_path: Path):
     repo = tmp_path / "repo"
     (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
     (repo / "docs" / "index.html").write_text(
         '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
         encoding="utf-8",
@@ -150,6 +158,8 @@ def test_publish_auto_calls_git(tmp_path: Path):
         calls.append(cmd)
         from subprocess import CompletedProcess
 
+        if cmd[:2] == ["git", "status"] and "--untracked-files=all" in cmd:
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
         if cmd[:2] == ["git", "status"]:
             return CompletedProcess(cmd, 0, stdout="M posts/2026-07-20.md\n", stderr="")
         return CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -158,6 +168,9 @@ def test_publish_auto_calls_git(tmp_path: Path):
     assert out["status"] == "published_auto"
     assert any(c[:2] == ["git", "add"] for c in calls)
     assert any(c[:2] == ["git", "commit"] for c in calls)
+    add_call = next(c for c in calls if c[:2] == ["git", "add"])
+    assert "posts/" not in add_call
+    assert "posts/2026-07-20.md" in add_call
     # Pull --rebase must happen after commit and before push, so a moved
     # remote doesn't permanently break the nightly job.
     pull_idx = next(i for i, c in enumerate(calls) if c[:3] == ["git", "pull", "--rebase"])
@@ -169,6 +182,7 @@ def test_publish_auto_calls_git(tmp_path: Path):
 def test_publish_pr_branches_from_base_and_returns(tmp_path: Path):
     repo = tmp_path / "repo"
     (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
     (repo / "docs" / "index.html").write_text(
         '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
         encoding="utf-8",
@@ -188,6 +202,10 @@ def test_publish_pr_branches_from_base_and_returns(tmp_path: Path):
         calls.append(cmd)
         from subprocess import CompletedProcess
 
+        if cmd[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+            return CompletedProcess(cmd, 0, stdout="main\n", stderr="")
+        if cmd[:2] == ["git", "status"] and "--untracked-files=all" in cmd:
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
         if cmd[:2] == ["git", "status"]:
             return CompletedProcess(cmd, 0, stdout="M posts/2026-07-20.md\n", stderr="")
         return CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -198,6 +216,65 @@ def test_publish_pr_branches_from_base_and_returns(tmp_path: Path):
     assert ["git", "checkout", "-B", "devlog/post-2026-07-20", "main"] in calls
     # And the repo ends back on main so tomorrow's PR doesn't stack.
     assert calls[-1] == ["git", "checkout", "main"]
+
+
+def test_publish_auto_refuses_preexisting_managed_changes(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    sample = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+    cfg = DevlogConfig(
+        sources=["codex"],
+        codex_root=str(sample),
+        repo_path=str(repo),
+        publish_mode="auto",
+    )
+
+    def dirty_git(cmd: list[str], cwd: Path):
+        from subprocess import CompletedProcess
+
+        return CompletedProcess(
+            cmd,
+            0,
+            stdout="?? posts/private-draft.md\n",
+            stderr="",
+        )
+
+    with pytest.raises(RuntimeError, match="private-draft"):
+        publish_day(cfg, date(2026, 7, 20), git_run=dirty_git)
+    assert not (repo / "posts").exists()
+
+
+def test_publish_pr_restores_original_branch_after_failure(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    sample = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+    cfg = DevlogConfig(
+        sources=["codex"],
+        codex_root=str(sample),
+        repo_path=str(repo),
+        publish_mode="pr",
+    )
+    calls: list[list[str]] = []
+
+    def fake_git(cmd: list[str], cwd: Path):
+        from subprocess import CompletedProcess
+
+        calls.append(cmd)
+        if cmd[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+            return CompletedProcess(cmd, 0, stdout="feature/work\n", stderr="")
+        if cmd[:2] == ["git", "status"] and "--untracked-files=all" in cmd:
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
+        if cmd[:2] == ["git", "status"]:
+            return CompletedProcess(cmd, 0, stdout="M generated\n", stderr="")
+        if cmd[:2] == ["git", "push"]:
+            return CompletedProcess(cmd, 1, stdout="", stderr="push failed")
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with pytest.raises(RuntimeError, match="push failed"):
+        publish_day(cfg, date(2026, 7, 20), force=True, git_run=fake_git)
+    assert calls[-1] == ["git", "checkout", "feature/work"]
 
 
 def test_publish_dry_run_no_files(tmp_path: Path):
@@ -217,9 +294,43 @@ def test_publish_dry_run_no_files(tmp_path: Path):
     assert "gurukul" in out["post"].lower()
 
 
+def test_publish_dry_run_prints_post_not_internal_dict(tmp_path: Path, capsys):
+    sample = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+    cfg_path = tmp_path / "config.toml"
+    save_config(
+        DevlogConfig(
+            sources=["codex"],
+            codex_root=str(sample),
+            repo_path=str(tmp_path),
+            publish_mode="auto",
+        ),
+        cfg_path,
+    )
+
+    code = cmd_publish(
+        ["--date", "2026-07-20", "--dry-run", "--config", str(cfg_path)]
+    )
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "gurukul" in output.lower()
+    assert "'status': 'dry_run'" not in output
+
+
 def test_list_posts_newest_first(tmp_path: Path):
     posts = tmp_path / "posts"
     write_post_markdown(posts, date(2026, 7, 20), "a")
     write_post_markdown(posts, date(2026, 7, 22), "b")
     items = list_posts(posts)
     assert [d.isoformat() for d, _, _ in items] == ["2026-07-22", "2026-07-20"]
+
+
+def test_list_posts_ignores_invalid_calendar_dates(tmp_path: Path):
+    posts = tmp_path / "posts"
+    posts.mkdir()
+    (posts / "2026-99-99.md").write_text("invalid", encoding="utf-8")
+    write_post_markdown(posts, date(2026, 7, 20), "valid")
+
+    items = list_posts(posts)
+
+    assert [day.isoformat() for day, _, _ in items] == ["2026-07-20"]

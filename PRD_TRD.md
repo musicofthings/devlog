@@ -54,7 +54,8 @@ own machine, for their own review. No multi-tenant concerns yet.
   digest line.
 
 ### 3.3 Summarization
-- FR7: If `ANTHROPIC_API_KEY` is set, send the digest to Claude
+- FR7: If `ANTHROPIC_API_KEY` is set and external API use is explicitly
+  enabled, send a redacted digest to Claude
   (model: claude-sonnet-4-6) with a system prompt constraining it to:
   plain language, 3-5 sentences, no invented details, specific project/
   file references over generic praise.

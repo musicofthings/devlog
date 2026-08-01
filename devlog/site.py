@@ -113,7 +113,10 @@ def list_posts(posts_dir: Path) -> list[tuple[date, Path, str]]:
         m = _DATE_RE.match(path.name)
         if not m:
             continue
-        d = date.fromisoformat(m.group(1))
+        try:
+            d = date.fromisoformat(m.group(1))
+        except ValueError:
+            continue
         body = path.read_text(encoding="utf-8")
         items.append((d, path, body))
     items.sort(key=lambda t: t[0], reverse=True)
@@ -216,7 +219,11 @@ def write_post_markdown(posts_dir: Path, day: date, post_body: str, *, force: bo
 
 
 def rebuild_site(repo_path: Path) -> list[Path]:
-    """Rebuild docs/log from posts/*.md. Returns written paths."""
+    """Rebuild docs/log from posts/*.md.
+
+    Returns every path whose resulting git state should be staged, including
+    stale HTML paths that were removed.
+    """
     repo_path = Path(repo_path)
     posts_dir = repo_path / "posts"
     log_dir = repo_path / "docs" / "log"
@@ -243,24 +250,29 @@ def rebuild_site(repo_path: Path) -> list[Path]:
         written.append(day_path)
 
     for stale in existing - keep:
-        (log_dir / stale).unlink(missing_ok=True)
+        stale_path = log_dir / stale
+        stale_path.unlink(missing_ok=True)
+        written.append(stale_path)
 
-    _ensure_landing_nav(repo_path / "docs" / "index.html")
+    landing = repo_path / "docs" / "index.html"
+    if _ensure_landing_nav(landing):
+        written.append(landing)
     return written
 
 
-def _ensure_landing_nav(index_path: Path) -> None:
+def _ensure_landing_nav(index_path: Path) -> bool:
     """Insert a Log link into the landing CTA area if missing."""
     if not index_path.exists():
-        return
+        return False
     text = index_path.read_text(encoding="utf-8")
     if 'href="log/index.html"' in text or "href='log/index.html'" in text:
-        return
+        return False
     needle = 'href="https://github.com/musicofthings/devlog">Open on GitHub →</a>'
     if needle not in text:
-        return
+        return False
     replacement = (
         needle
         + '\n        <a class="cta ghost" href="log/index.html">Read the log →</a>'
     )
     index_path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+    return True

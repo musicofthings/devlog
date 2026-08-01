@@ -23,7 +23,19 @@ def _app_data_dir() -> Path:
     return Path(base) / "devlog"
 
 
-def build_wrapper_script(cfg: DevlogConfig, *, python_exe: str | None = None) -> str:
+def _cmd_quote(value: str) -> str:
+    """Quote a batch-file argument and reject characters that can break quoting."""
+    if any(char in value for char in {'"', "\r", "\n"}):
+        raise ValueError(f"Unsafe character in scheduled-task path: {value!r}")
+    return f'"{value.replace("%", "%%")}"'
+
+
+def build_wrapper_script(
+    cfg: DevlogConfig,
+    *,
+    python_exe: str | None = None,
+    config_path: Path | None = None,
+) -> str:
     """Content of the .cmd the scheduled task runs.
 
     A wrapper script sidesteps schtasks /TR quoting problems with paths that
@@ -32,14 +44,16 @@ def build_wrapper_script(cfg: DevlogConfig, *, python_exe: str | None = None) ->
     repo = str(Path(cfg.repo_path).expanduser())
     python = python_exe or _python_exe()
     log = str(_app_data_dir() / LOG_NAME)
+    config_arg = f" --config {_cmd_quote(str(config_path.resolve()))}" if config_path else ""
     return (
         "@echo off\r\n"
-        f'cd /d "{repo}"\r\n'
-        f'"{python}" -m devlog publish --date yesterday >> "{log}" 2>&1\r\n'
+        f"cd /d {_cmd_quote(repo)}\r\n"
+        f"{_cmd_quote(python)} -m devlog publish --date yesterday{config_arg} "
+        f">> {_cmd_quote(log)} 2>&1\r\n"
     )
 
 
-def register_windows_task(cfg: DevlogConfig) -> str:
+def register_windows_task(cfg: DevlogConfig, *, config_path: Path | None = None) -> str:
     """Register or replace a daily schtasks job. Returns task name."""
     if sys.platform != "win32":
         raise RuntimeError("Task Scheduler registration is only supported on Windows")
@@ -49,7 +63,10 @@ def register_windows_task(cfg: DevlogConfig) -> str:
     app_dir = _app_data_dir()
     app_dir.mkdir(parents=True, exist_ok=True)
     script_path = app_dir / "run_publish.cmd"
-    script_path.write_text(build_wrapper_script(cfg), encoding="utf-8")
+    script_path.write_text(
+        build_wrapper_script(cfg, config_path=config_path),
+        encoding="utf-8",
+    )
 
     cmd = [
         "schtasks",

@@ -40,7 +40,11 @@ class SessionDigest:
     tokens_in: int = 0
     tokens_out: int = 0
     tokens_cache_read: int = 0
+    active_minutes: float | None = None
+    active_intervals: list[tuple[datetime, datetime]] = field(default_factory=list, repr=False)
 
     @property
     def duration_minutes(self) -> float:
+        if self.active_minutes is not None:
+            return max(0.0, self.active_minutes)
         return max(0.0, (self.end_time - self.start_time).total_seconds() / 60.0)

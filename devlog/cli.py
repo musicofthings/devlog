@@ -29,6 +29,15 @@ def build_run_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run", action="store_true", help="Print the post but do not write a file"
     )
+    parser.add_argument(
+        "--force", action="store_true", help="Overwrite an existing generated post"
+    )
+    parser.add_argument(
+        "--allow-external-api",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Allow transcript-derived text to be sent to the configured model API",
+    )
     parser.add_argument("--verbose", action="store_true", help="Print extra diagnostic information")
     parser.add_argument(
         "--sample-mode",
@@ -49,6 +58,8 @@ def _resolve_config(args: argparse.Namespace) -> DevlogConfig:
         cfg.codex_root = args.codex_root
     if args.cursor_root:
         cfg.cursor_root = args.cursor_root
+    if args.allow_external_api is not None:
+        cfg.allow_external_api = args.allow_external_api
     return cfg
 
 
@@ -66,10 +77,19 @@ def cmd_run(argv: list[str] | None = None) -> int:
             print(f"Invalid --date {args.date!r}: expected YYYY-MM-DD or 'today'")
             return 2
 
+    out_path = Path(f"devlog-{target_date}.md")
+    if not args.dry_run and out_path.exists() and not args.force:
+        print(f"Refusing to overwrite existing post: {out_path} (use --force to replace it)")
+        return 1
+
     import devlog.sources  # noqa: F401
     from devlog.sources.base import get_sources
 
-    cfg = _resolve_config(args)
+    try:
+        cfg = _resolve_config(args)
+    except (OSError, ValueError) as exc:
+        print(f"Could not load config: {exc}")
+        return 2
     try:
         sources = get_sources(list(cfg.sources))
     except KeyError as exc:
@@ -91,7 +111,11 @@ def cmd_run(argv: list[str] | None = None) -> int:
     digests = slice_for_date(raw_sessions, target_date, tz)
 
     print(f"=== Found {len(digests)} session(s) for {target_date} ===\n")
-    post = generate_post(digests, model=cfg.model)
+    post = generate_post(
+        digests,
+        model=cfg.model,
+        allow_external_api=cfg.allow_external_api,
+    )
     print("=== Daily post ===\n")
     print(post)
     print()
@@ -99,7 +123,6 @@ def cmd_run(argv: list[str] | None = None) -> int:
     if args.dry_run:
         return 0
 
-    out_path = Path(f"devlog-{target_date}.md")
     out_path.write_text(f"# {target_date}\n\n{post}\n", encoding="utf-8")
     print(f"(saved to {out_path})")
     return 0
