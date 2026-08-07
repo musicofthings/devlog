@@ -32,8 +32,9 @@ jobs:
         run: python -m pip install -e .
 
       - name: Delete post
-        run: devlog delete --date "${{ github.event.inputs.date }}"
+        run: devlog delete --date "$DELETE_DATE"
         env:
+          DELETE_DATE: ${{ github.event.inputs.date }}
           GIT_AUTHOR_NAME: devlog-bot
           GIT_AUTHOR_EMAIL: devlog-bot@users.noreply.github.com
           GIT_COMMITTER_NAME: devlog-bot
