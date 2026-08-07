@@ -10,7 +10,7 @@ Turns local AI coding session history into one short, factual, first-person
 
 | Suite | Result |
 |-------|--------|
-| `pytest` | **74 passed** |
+| `pytest` | **90 passed** |
 | Offline evals (`python -m evals.run`) | **8/8 passed** |
 | Live evals (`python -m evals.run --live`) | **8/8 passed** |
 
@@ -48,7 +48,7 @@ pip install -e ".[dev]"
 ```
 
 This also installs a `devlog` console command (`devlog run`, `devlog init`,
-`devlog publish`) — everything below works with either `devlog` or
+`devlog publish`, `devlog delete`) — everything below works with either `devlog` or
 `python main.py` interchangeably; `python main.py` needs no install step.
 
 ## Run
@@ -103,7 +103,7 @@ Missing roots are skipped (other sources still run).
 
 ```bash
 python -m pytest
-# expected: 74 passed
+# expected: 90 passed
 ```
 
 ## Evals
