@@ -252,7 +252,11 @@ def build_day_html(day: date, body: str) -> str:
     return _page(title, inner)
 
 
-def _admin_panel_html(github_repo: str) -> str:
+def _js_string(value: str) -> str:
+    return json.dumps(value).replace("</", "<\\/")
+
+
+def _admin_panel_html(github_repo: str, branch: str) -> str:
     return f"""
 <details class="admin">
   <summary>Admin: manage posts</summary>
@@ -272,8 +276,9 @@ def _admin_panel_html(github_repo: str) -> str:
 </details>
 <script>
 (function () {{
-  var REPO = {json.dumps(github_repo)};
-  var WORKFLOW = {json.dumps(DELETE_WORKFLOW_FILE)};
+  var REPO = {_js_string(github_repo)};
+  var WORKFLOW = {_js_string(DELETE_WORKFLOW_FILE)};
+  var BRANCH = {_js_string(branch)};
   var STORAGE_KEY = "devlog-admin-token";
   var statusEl = document.getElementById("devlog-admin-status");
 
@@ -332,7 +337,7 @@ def _admin_panel_html(github_repo: str) -> str:
             "Accept": "application/vnd.github+json",
             "Content-Type": "application/json"
           }},
-          body: JSON.stringify({{ ref: "main", inputs: {{ date: day }} }})
+          body: JSON.stringify({{ ref: BRANCH, inputs: {{ date: day }} }})
         }}
       ).then(function (resp) {{
         if (resp.status === 204) {{
@@ -352,7 +357,11 @@ def _admin_panel_html(github_repo: str) -> str:
 """
 
 
-def build_feed_html(posts: list[tuple[date, Path, str]], github_repo: str | None = None) -> str:
+def build_feed_html(
+    posts: list[tuple[date, Path, str]],
+    github_repo: str | None = None,
+    branch: str = "main",
+) -> str:
     if not posts:
         items = '<li><p class="excerpt">No posts yet.</p></li>'
     else:
@@ -373,7 +382,7 @@ def build_feed_html(posts: list[tuple[date, Path, str]], github_repo: str | None
                 "</li>"
             )
         items = "\n".join(chunks)
-    admin_html = _admin_panel_html(github_repo) if github_repo else ""
+    admin_html = _admin_panel_html(github_repo, branch) if github_repo else ""
     admin_css = f"<style>{ADMIN_CSS}</style>" if github_repo else ""
     inner = f"""<h1>Log</h1>
 <p class="meta">Reverse-chronological daily build logs</p>
@@ -395,7 +404,9 @@ def write_post_markdown(posts_dir: Path, day: date, post_body: str, *, force: bo
     return path
 
 
-def rebuild_site(repo_path: Path, git_run: GitRunner = default_git) -> list[Path]:
+def rebuild_site(
+    repo_path: Path, git_run: GitRunner = default_git, branch: str = "main"
+) -> list[Path]:
     """Rebuild docs/log from posts/*.md.
 
     Returns every path whose resulting git state should be staged, including
@@ -415,7 +426,9 @@ def rebuild_site(repo_path: Path, git_run: GitRunner = default_git) -> list[Path
     posts = list_posts(posts_dir)
     github_repo = detect_github_repo(repo_path, git_run)
     feed_path = log_dir / "index.html"
-    feed_path.write_text(build_feed_html(posts, github_repo=github_repo), encoding="utf-8")
+    feed_path.write_text(
+        build_feed_html(posts, github_repo=github_repo, branch=branch), encoding="utf-8"
+    )
     written.append(feed_path)
 
     existing = {p.name for p in log_dir.glob("????-??-??.html")}

@@ -37,18 +37,25 @@ def delete_day(
         raise RuntimeError(f"Configured repository is not a git checkout: {repo}")
 
     post_path.unlink()
-    written = rebuild_site(repo, git_run=git_run)
+    written = rebuild_site(repo, git_run=git_run, branch=cfg.branch)
     artifacts = [post_path, *written]
 
-    commit_and_push(
-        repo,
-        f"delete: devlog {target.isoformat()}",
-        artifacts,
-        remote=cfg.remote,
-        branch=cfg.branch,
-        git_run=git_run,
-        require_changes=True,
-    )
+    try:
+        commit_and_push(
+            repo,
+            f"delete: devlog {target.isoformat()}",
+            artifacts,
+            remote=cfg.remote,
+            branch=cfg.branch,
+            git_run=git_run,
+            require_changes=True,
+        )
+    except RuntimeError as exc:
+        relative = post_path.relative_to(repo).as_posix()
+        raise RuntimeError(
+            f"{exc} (the post file at {post_path} was already removed from the "
+            f"working tree; run `git checkout -- {relative}` to restore it if needed)"
+        ) from exc
 
     return {
         "status": "deleted",
@@ -58,7 +65,12 @@ def delete_day(
 
 
 def cmd_delete(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Delete a previously published daily post")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Delete a previously published daily post (real git removal — "
+            "recoverable only via git history, not a soft-hide)"
+        )
+    )
     parser.add_argument("--date", required=True, help="YYYY-MM-DD")
     parser.add_argument(
         "--config",

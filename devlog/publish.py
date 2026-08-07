@@ -187,7 +187,7 @@ def publish_day(
         }
 
     write_post_markdown(posts_dir, target, body, force=force)
-    written = rebuild_site(repo, git_run=git_run)
+    written = rebuild_site(repo, git_run=git_run, branch=cfg.branch)
     artifacts = [post_path, *written]
 
     result = {

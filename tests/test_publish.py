@@ -450,6 +450,28 @@ def test_feed_includes_admin_panel_when_repo_detected(tmp_path: Path):
     assert "Actions: read and write" in feed
 
 
+def test_admin_panel_dispatch_uses_configured_branch(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    write_post_markdown(repo / "posts", date(2026, 7, 20), "Built the Codex parser today.")
+
+    def fake_git(cmd, cwd):
+        from subprocess import CompletedProcess
+
+        return CompletedProcess(cmd, 0, stdout="git@github.com:someone/theirfork.git\n", stderr="")
+
+    rebuild_site(repo, git_run=fake_git, branch="release")
+    feed = (repo / "docs" / "log" / "index.html").read_text(encoding="utf-8")
+
+    assert 'var BRANCH = "release"' in feed
+    assert 'ref: "main"' not in feed
+
+
 def test_feed_omits_admin_panel_without_git_repo(tmp_path: Path):
     repo = tmp_path / "repo"
     (repo / "docs").mkdir(parents=True)
