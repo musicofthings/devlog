@@ -277,6 +277,39 @@ def test_publish_pr_restores_original_branch_after_failure(tmp_path: Path):
     assert calls[-1] == ["git", "checkout", "feature/work"]
 
 
+def test_publish_pr_reports_restore_failure_after_push_failure(tmp_path: Path):
+    """If the branch restore ALSO fails, that must not be silently dropped."""
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    sample = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+    cfg = DevlogConfig(
+        sources=["codex"],
+        codex_root=str(sample),
+        repo_path=str(repo),
+        publish_mode="pr",
+    )
+
+    def fake_git(cmd: list[str], cwd: Path):
+        from subprocess import CompletedProcess
+
+        if cmd[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+            return CompletedProcess(cmd, 0, stdout="feature/work\n", stderr="")
+        if cmd[:2] == ["git", "status"] and "--untracked-files=all" in cmd:
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
+        if cmd[:2] == ["git", "status"]:
+            return CompletedProcess(cmd, 0, stdout="M generated\n", stderr="")
+        if cmd[:2] == ["git", "push"]:
+            return CompletedProcess(cmd, 1, stdout="", stderr="push failed")
+        if cmd[:2] == ["git", "checkout"] and cmd[2] == "feature/work":
+            return CompletedProcess(cmd, 1, stdout="", stderr="checkout failed: dirty tree")
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with pytest.raises(RuntimeError, match="checkout failed: dirty tree") as excinfo:
+        publish_day(cfg, date(2026, 7, 20), force=True, git_run=fake_git)
+    assert "push failed" in str(excinfo.value.__cause__)
+
+
 def test_publish_dry_run_no_files(tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()

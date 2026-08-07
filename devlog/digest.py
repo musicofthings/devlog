@@ -38,15 +38,25 @@ def slice_for_date(
         clipped_start = max(sess_start, day_start)
         clipped_end = min(sess_end, day_end)
         intervals = _active_intervals_for_day(raw.events, day_start, day_end, tz)
+        if intervals:
+            active_minutes: float | None = sum(
+                (end - start).total_seconds() / 60.0 for start, end in intervals
+            )
+        elif len(events) <= 1:
+            # A single event that day gives no gap to measure -- fall back to
+            # the clipped session span instead of reporting a false 0.
+            active_minutes = None
+        else:
+            # Multiple events, but every gap exceeded the idle cutoff: this is
+            # genuinely idle time, not missing data.
+            active_minutes = 0.0
         digest = SessionDigest(
             session_id=raw.session_id,
             project_path=raw.project_path,
             source=raw.source,
             start_time=clipped_start,
             end_time=clipped_end if clipped_end > clipped_start else clipped_start,
-            active_minutes=sum(
-                (end - start).total_seconds() / 60.0 for start, end in intervals
-            ),
+            active_minutes=active_minutes,
             active_intervals=intervals,
         )
         for e in events:

@@ -80,6 +80,43 @@ def _ensure_managed_paths_clean(repo: Path, git_run: GitRunner) -> None:
         )
 
 
+def _git_add_and_commit(
+    repo: Path,
+    day: date,
+    artifacts: list[Path],
+    git_run: GitRunner,
+    *,
+    require_changes: bool,
+) -> bool:
+    """Stage artifacts and commit if there's anything new.
+
+    Returns whether a commit was made. Raises if require_changes is set and
+    there's nothing to commit (the PR flow has no use for an empty PR).
+    """
+    paths = _git_paths(repo, artifacts)
+    if not paths:
+        if require_changes:
+            raise RuntimeError("No generated changes to publish")
+        return False
+    add = git_run(["git", "add", "--", *paths], repo)
+    if add.returncode != 0:
+        raise RuntimeError(add.stderr or add.stdout or "git add failed")
+
+    status = git_run(["git", "status", "--porcelain", "--", *paths], repo)
+    if status.returncode != 0:
+        raise RuntimeError(status.stderr or status.stdout or "git status failed")
+    if not status.stdout.strip():
+        if require_changes:
+            raise RuntimeError("No generated changes to publish")
+        return False
+
+    msg = f"publish: devlog {day.isoformat()}"
+    commit = git_run(["git", "commit", "-m", msg], repo)
+    if commit.returncode != 0:
+        raise RuntimeError(commit.stderr or commit.stdout or "git commit failed")
+    return True
+
+
 def _git_publish_auto(
     repo: Path,
     day: date,
@@ -89,23 +126,8 @@ def _git_publish_auto(
     branch: str,
     git_run: GitRunner,
 ) -> None:
-    paths = _git_paths(repo, artifacts)
-    if not paths:
-        return
-    add = git_run(["git", "add", "--", *paths], repo)
-    if add.returncode != 0:
-        raise RuntimeError(add.stderr or add.stdout or "git add failed")
-
-    status = git_run(["git", "status", "--porcelain", "--", *paths], repo)
-    if status.returncode != 0:
-        raise RuntimeError(status.stderr or status.stdout or "git status failed")
-    if not status.stdout.strip():
+    if not _git_add_and_commit(repo, day, artifacts, git_run, require_changes=False):
         return  # nothing new
-
-    msg = f"publish: devlog {day.isoformat()}"
-    commit = git_run(["git", "commit", "-m", msg], repo)
-    if commit.returncode != 0:
-        raise RuntimeError(commit.stderr or commit.stdout or "git commit failed")
 
     # Rebase onto the remote first so a scheduled push doesn't fail forever
     # after the remote moved (e.g. an edit made on GitHub or another machine).
@@ -144,23 +166,9 @@ def _git_publish_pr(
     if checkout.returncode != 0:
         raise RuntimeError(checkout.stderr or checkout.stdout or "git checkout failed")
 
-    restore_error: RuntimeError | None = None
+    error: Exception | None = None
     try:
-        paths = _git_paths(repo, artifacts)
-        add = git_run(["git", "add", "--", *paths], repo)
-        if add.returncode != 0:
-            raise RuntimeError(add.stderr or add.stdout or "git add failed")
-
-        status = git_run(["git", "status", "--porcelain", "--", *paths], repo)
-        if status.returncode != 0:
-            raise RuntimeError(status.stderr or status.stdout or "git status failed")
-        if not status.stdout.strip():
-            raise RuntimeError("No generated changes to publish")
-
-        msg = f"publish: devlog {day.isoformat()}"
-        commit = git_run(["git", "commit", "-m", msg], repo)
-        if commit.returncode != 0:
-            raise RuntimeError(commit.stderr or commit.stdout or "git commit failed")
+        _git_add_and_commit(repo, day, artifacts, git_run, require_changes=True)
 
         push = git_run(["git", "push", "-u", remote, branch], repo)
         if push.returncode != 0:
@@ -187,15 +195,18 @@ def _git_publish_pr(
             err = (pr.stderr or pr.stdout or "").lower()
             if "already exists" not in err:
                 raise RuntimeError(pr.stderr or pr.stdout or "gh pr create failed")
+    except Exception as exc:  # noqa: BLE001
+        error = exc
     finally:
         back = git_run(["git", "checkout", original_branch], repo)
         if back.returncode != 0:
             restore_error = RuntimeError(
                 back.stderr or back.stdout or "git checkout original branch failed"
             )
+            raise restore_error from error
 
-    if restore_error is not None:
-        raise restore_error
+    if error is not None:
+        raise error
 
 
 def publish_day(

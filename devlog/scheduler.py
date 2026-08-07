@@ -23,9 +23,12 @@ def _app_data_dir() -> Path:
     return Path(base) / "devlog"
 
 
+_UNSAFE_CMD_CHARS = {'"', "\r", "\n", "&", "|", "<", ">", "^"}
+
+
 def _cmd_quote(value: str) -> str:
     """Quote a batch-file argument and reject characters that can break quoting."""
-    if any(char in value for char in {'"', "\r", "\n"}):
+    if any(char in value for char in _UNSAFE_CMD_CHARS):
         raise ValueError(f"Unsafe character in scheduled-task path: {value!r}")
     return f'"{value.replace("%", "%%")}"'
 

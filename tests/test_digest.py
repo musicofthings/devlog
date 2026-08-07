@@ -90,6 +90,30 @@ def test_total_active_minutes_unions_overlapping_sessions():
     assert total_active_minutes([a, b]) == 15
 
 
+def test_single_event_session_falls_back_to_session_span_not_zero():
+    # Only one event lands within the day, so there's no gap to measure an
+    # active interval from -- but the session clearly wasn't idle for 0
+    # minutes, so duration should fall back to the clipped session span
+    # instead of being silently reported as 0.
+    start = datetime(2026, 7, 22, 9, 0, tzinfo=UTC)
+    event_time = datetime(2026, 7, 22, 9, 5, tzinfo=UTC)
+    end = datetime(2026, 7, 22, 9, 10, tzinfo=UTC)
+    raw = RawSession(
+        session_id="single-event",
+        project_path="/proj",
+        source="claude_code",
+        start_time=start,
+        end_time=end,
+        events=[_ev(event_time, user_message="only message")],
+    )
+
+    digests = slice_for_date([raw], date(2026, 7, 22), UTC)
+
+    assert len(digests) == 1
+    assert digests[0].active_minutes is None
+    assert digests[0].duration_minutes == 10.0
+
+
 def test_no_overlap_returns_empty():
     ts = datetime(2026, 7, 21, 12, 0, tzinfo=IST)
     raw = RawSession(

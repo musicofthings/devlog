@@ -31,6 +31,17 @@ def test_redacts_common_secret_shapes():
     assert text.count("[REDACTED_SECRET]") == 2
 
 
+def test_redacts_bare_credential_assignment():
+    text = redact_sensitive_text(
+        "export TOKEN=abc123 PASSWORD=hunter2 API_KEY=sk-plain-value"
+    )
+
+    assert "abc123" not in text
+    assert "hunter2" not in text
+    assert "sk-plain-value" not in text
+    assert text.count("[REDACTED_SECRET]") == 3
+
+
 def test_digest_and_template_redact_transcript_secrets():
     session = _sensitive_session()
     session.project_path = str(Path.home() / "projects" / "private")

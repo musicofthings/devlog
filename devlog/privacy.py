@@ -16,7 +16,7 @@ _BEARER_RE = re.compile(
     r"(?i)(\bauthorization\s*[:=]\s*bearer\s+)[^\s\"']+"
 )
 _ASSIGNMENT_RE = re.compile(
-    r"(?i)\b([A-Z][A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD))\s*=\s*([^\s,;]+)"
+    r"(?i)\b([A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD))\s*=\s*([^\s,;]+)"
 )
 
 

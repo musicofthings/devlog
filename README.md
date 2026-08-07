@@ -10,7 +10,7 @@ Turns local AI coding session history into one short, factual, first-person
 
 | Suite | Result |
 |-------|--------|
-| `pytest` | **70 passed** |
+| `pytest` | **74 passed** |
 | Offline evals (`python -m evals.run`) | **8/8 passed** |
 | Live evals (`python -m evals.run --live`) | **8/8 passed** |
 
@@ -39,9 +39,15 @@ docs/                 # GitHub Pages landing + superpowers specs/plans
 
 ## Setup
 
+Requires Python 3.11+.
+
 ```bash
 pip install -e ".[dev]"
 ```
+
+This also installs a `devlog` console command (`devlog run`, `devlog init`,
+`devlog publish`) — everything below works with either `devlog` or
+`python main.py` interchangeably; `python main.py` needs no install step.
 
 ## Run
 
@@ -49,6 +55,8 @@ Print today's post without writing a file (defaults: all three sources):
 
 ```bash
 python main.py --date today --dry-run
+# or, once installed:
+devlog --date today --dry-run
 ```
 
 Against bundled sample data:
@@ -93,7 +101,7 @@ Missing roots are skipped (other sources still run).
 
 ```bash
 python -m pytest
-# expected: 70 passed
+# expected: 74 passed
 ```
 
 ## Evals

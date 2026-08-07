@@ -1,5 +1,13 @@
+import pytest
+
 from devlog.config import DevlogConfig
 from devlog.scheduler import build_wrapper_script
+
+
+def test_wrapper_script_rejects_cmd_metacharacters_in_repo_path():
+    cfg = DevlogConfig(repo_path="C:/Users/dev/notes & todo", publish_mode="manual")
+    with pytest.raises(ValueError):
+        build_wrapper_script(cfg, python_exe="python")
 
 
 def test_wrapper_script_quotes_paths_with_spaces():
