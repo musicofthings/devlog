@@ -77,8 +77,9 @@ def test_delete_raises_if_nothing_to_commit(tmp_path: Path):
             return CompletedProcess(cmd, 0, stdout="", stderr="")
         return CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    with pytest.raises(RuntimeError, match="No generated changes"):
+    with pytest.raises(RuntimeError, match="No generated changes") as excinfo:
         delete_day(cfg, date(2026, 7, 20), git_run=fake_git)
+    assert "already removed from the working tree" in str(excinfo.value)
 
 
 def test_cmd_delete_missing_post_exits_2(tmp_path: Path, capsys):
