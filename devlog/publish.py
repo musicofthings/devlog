@@ -3,29 +3,18 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
-from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from devlog.config import DevlogConfig, default_config_path, load_config
 from devlog.digest import slice_for_date
+from devlog.gitutil import GitRunner, add_and_commit, commit_and_push
+from devlog.gitutil import default_git as _default_git
 from devlog.models import RawSession
 from devlog.site import rebuild_site, write_post_markdown
 from devlog.summarize import generate_post
 
-GitRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
 MANAGED_PATHS = ("posts/", "docs/log/", "docs/.nojekyll", "docs/index.html")
-
-
-def _default_git(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        cmd,
-        cwd=cwd,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
 
 
 def resolve_publish_date(raw: str, *, today: date | None = None) -> date:
@@ -52,19 +41,6 @@ def collect_digests(cfg: DevlogConfig, target: date):
     return slice_for_date(raw, target, tz)
 
 
-def _git_paths(repo: Path, artifacts: list[Path]) -> list[str]:
-    """Return unique repo-relative paths suitable for pathspec-safe git calls."""
-    paths: list[str] = []
-    for artifact in artifacts:
-        try:
-            relative = artifact.resolve().relative_to(repo.resolve()).as_posix()
-        except ValueError as exc:
-            raise RuntimeError(f"Generated artifact is outside the repository: {artifact}") from exc
-        if relative not in paths:
-            paths.append(relative)
-    return paths
-
-
 def _ensure_managed_paths_clean(repo: Path, git_run: GitRunner) -> None:
     """Refuse to sweep pre-existing drafts or edits into an automated commit."""
     status = git_run(
@@ -80,43 +56,6 @@ def _ensure_managed_paths_clean(repo: Path, git_run: GitRunner) -> None:
         )
 
 
-def _git_add_and_commit(
-    repo: Path,
-    day: date,
-    artifacts: list[Path],
-    git_run: GitRunner,
-    *,
-    require_changes: bool,
-) -> bool:
-    """Stage artifacts and commit if there's anything new.
-
-    Returns whether a commit was made. Raises if require_changes is set and
-    there's nothing to commit (the PR flow has no use for an empty PR).
-    """
-    paths = _git_paths(repo, artifacts)
-    if not paths:
-        if require_changes:
-            raise RuntimeError("No generated changes to publish")
-        return False
-    add = git_run(["git", "add", "--", *paths], repo)
-    if add.returncode != 0:
-        raise RuntimeError(add.stderr or add.stdout or "git add failed")
-
-    status = git_run(["git", "status", "--porcelain", "--", *paths], repo)
-    if status.returncode != 0:
-        raise RuntimeError(status.stderr or status.stdout or "git status failed")
-    if not status.stdout.strip():
-        if require_changes:
-            raise RuntimeError("No generated changes to publish")
-        return False
-
-    msg = f"publish: devlog {day.isoformat()}"
-    commit = git_run(["git", "commit", "-m", msg], repo)
-    if commit.returncode != 0:
-        raise RuntimeError(commit.stderr or commit.stdout or "git commit failed")
-    return True
-
-
 def _git_publish_auto(
     repo: Path,
     day: date,
@@ -126,22 +65,14 @@ def _git_publish_auto(
     branch: str,
     git_run: GitRunner,
 ) -> None:
-    if not _git_add_and_commit(repo, day, artifacts, git_run, require_changes=False):
-        return  # nothing new
-
-    # Rebase onto the remote first so a scheduled push doesn't fail forever
-    # after the remote moved (e.g. an edit made on GitHub or another machine).
-    pull = git_run(["git", "pull", "--rebase", remote, branch], repo)
-    if pull.returncode != 0:
-        # Leave the repo in a clean state on failure -- otherwise it's stuck
-        # mid-rebase and every subsequent scheduled run fails too, until a
-        # human runs `git rebase --abort` by hand.
-        git_run(["git", "rebase", "--abort"], repo)
-        raise RuntimeError(pull.stderr or pull.stdout or "git pull --rebase failed")
-
-    push = git_run(["git", "push", remote, branch], repo)
-    if push.returncode != 0:
-        raise RuntimeError(push.stderr or push.stdout or "git push failed")
+    commit_and_push(
+        repo,
+        f"publish: devlog {day.isoformat()}",
+        artifacts,
+        remote=remote,
+        branch=branch,
+        git_run=git_run,
+    )
 
 
 def _git_publish_pr(
@@ -168,7 +99,9 @@ def _git_publish_pr(
 
     error: Exception | None = None
     try:
-        _git_add_and_commit(repo, day, artifacts, git_run, require_changes=True)
+        add_and_commit(
+            repo, f"publish: devlog {day.isoformat()}", artifacts, git_run, require_changes=True
+        )
 
         push = git_run(["git", "push", "-u", remote, branch], repo)
         if push.returncode != 0:
