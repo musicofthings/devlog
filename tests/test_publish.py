@@ -466,6 +466,57 @@ def test_feed_includes_admin_panel_when_repo_detected(tmp_path: Path):
     assert "Public Repositories" in feed
 
 
+def test_admin_panel_script_is_syntactically_valid_javascript(tmp_path: Path):
+    """A Python f-string generates this JS, and Python's own string escaping
+    can silently corrupt it -- e.g. `\\"` inside a plain (non-raw) triple-
+    quoted string is consumed by Python before the text ever becomes JS,
+    leaving bare unescaped quotes that break the script. This exact bug
+    shipped once already: it broke every button on the page (one syntax
+    error prevents the whole script -- including unrelated event listener
+    setup -- from running at all), and was invisible to every prior test
+    here because none of them actually parsed the output as JavaScript."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available to syntax-check generated JS")
+
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    write_post_markdown(repo / "posts", date(2026, 7, 20), "Built the Codex parser today.")
+
+    def fake_git(cmd, cwd):
+        from subprocess import CompletedProcess
+
+        return CompletedProcess(cmd, 0, stdout="git@github.com:someone/theirfork.git\n", stderr="")
+
+    rebuild_site(repo, git_run=fake_git)
+    feed = (repo / "docs" / "log" / "index.html").read_text(encoding="utf-8")
+
+    # The page has two inline <script> blocks -- the theme-boot script in
+    # <head>, and the admin panel script (last inline script in the doc,
+    # followed by a <style> block and an external <script src=...> tag
+    # whose closing </script> would wrongly be picked up by a naive
+    # rindex("</script>")). Grabbing the wrong slice would either silently
+    # check the wrong script or capture trailing HTML as if it were JS.
+    start = feed.rindex("<script>") + len("<script>")
+    end = feed.index("</script>", start)
+    script = feed[start:end]
+    js_file = tmp_path / "admin_panel.js"
+    js_file.write_text(script, encoding="utf-8")
+
+    result = subprocess.run(
+        [node, "--check", str(js_file)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, f"generated JS has a syntax error:\n{result.stderr}"
+
+
 def test_admin_panel_403_gets_actionable_hint(tmp_path: Path):
     """A bare "403: {message}" tells a user nothing actionable. The most
     common real cause is picking "Public Repositories (read-only)" instead

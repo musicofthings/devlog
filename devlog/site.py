@@ -363,9 +363,9 @@ def _admin_panel_html(github_repo: str, branch: str) -> str:
         }} else if (resp.status === 403) {{
           setStatus(
             "Delete request failed (403): token can't trigger this workflow. " +
-            "Check the token's Repository access is \"Only select repositories\" " +
-            "(not \"Public Repositories (read-only)\", which silently forces " +
-            "read-only) and that Actions permission is \"Read and write\"."
+            "Check the token's Repository access is 'Only select repositories' " +
+            "(not 'Public Repositories (read-only)', which silently forces " +
+            "read-only) and that Actions permission is 'Read and write'."
           );
         }} else {{
           resp.text().then(function (text) {{
