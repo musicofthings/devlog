@@ -258,7 +258,7 @@ def _js_string(value: str) -> str:
 
 def _admin_panel_html(github_repo: str, branch: str) -> str:
     return f"""
-<details class="admin">
+<details class="admin" id="devlog-admin-details">
   <summary>Admin: manage posts</summary>
   <p class="status">
     Paste a GitHub fine-grained personal access token scoped to
@@ -281,9 +281,19 @@ def _admin_panel_html(github_repo: str, branch: str) -> str:
   var BRANCH = {_js_string(branch)};
   var STORAGE_KEY = "devlog-admin-token";
   var statusEl = document.getElementById("devlog-admin-status");
+  var detailsEl = document.getElementById("devlog-admin-details");
 
   function setStatus(msg) {{
     if (statusEl) statusEl.textContent = msg;
+    // The admin panel is a collapsed <details> by default and stays closed
+    // across page loads. Without forcing it open, every status this
+    // function reports -- "save a token first", a delete failure, a delete
+    // success -- renders invisibly, and clicking Delete looks like nothing
+    // happened at all.
+    if (detailsEl) {{
+      detailsEl.open = true;
+      detailsEl.scrollIntoView({{ behavior: "smooth", block: "nearest" }});
+    }}
   }}
   function getToken() {{
     try {{ return localStorage.getItem(STORAGE_KEY) || ""; }}

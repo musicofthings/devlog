@@ -450,6 +450,33 @@ def test_feed_includes_admin_panel_when_repo_detected(tmp_path: Path):
     assert "Actions: read and write" in feed
 
 
+def test_admin_panel_status_forces_details_open(tmp_path: Path):
+    """setStatus must expand the collapsed <details> panel and scroll it into
+    view -- otherwise "Save a token first" / delete success / delete failure
+    all render invisibly inside a closed panel, and a click on Delete looks
+    like nothing happened at all."""
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    write_post_markdown(repo / "posts", date(2026, 7, 20), "Built the Codex parser today.")
+
+    def fake_git(cmd, cwd):
+        from subprocess import CompletedProcess
+
+        return CompletedProcess(cmd, 0, stdout="git@github.com:someone/theirfork.git\n", stderr="")
+
+    rebuild_site(repo, git_run=fake_git)
+    feed = (repo / "docs" / "log" / "index.html").read_text(encoding="utf-8")
+
+    admin_script = feed[feed.index("function setStatus") : feed.index("function getToken")]
+    assert "detailsEl.open = true" in admin_script
+    assert "scrollIntoView" in admin_script
+
+
 def test_admin_panel_dispatch_uses_configured_branch(tmp_path: Path):
     repo = tmp_path / "repo"
     (repo / "docs").mkdir(parents=True)

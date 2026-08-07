@@ -10,7 +10,7 @@ Turns local AI coding session history into one short, factual, first-person
 
 | Suite | Result |
 |-------|--------|
-| `pytest` | **91 passed** |
+| `pytest` | **94 passed** |
 | Offline evals (`python -m evals.run`) | **8/8 passed** |
 | Live evals (`python -m evals.run --live`) | **8/8 passed** |
 
@@ -103,7 +103,7 @@ Missing roots are skipped (other sources still run).
 
 ```bash
 python -m pytest
-# expected: 91 passed
+# expected: 94 passed
 ```
 
 ## Evals
@@ -157,6 +157,16 @@ schtasks /Query /TN DailyDevLogPublish /V /FO LIST
 ```powershell
 wevtutil sl "Microsoft-Windows-TaskScheduler/Operational" /e:true
 ```
+
+### Troubleshooting: the `devlog` command stops working entirely
+
+`devlog init`'s scheduling step now verifies the exact Python that will run the nightly task can actually `import devlog` *before* registering anything, so a broken install is caught immediately with a clear error instead of failing silently at 06:30. This specifically catches a stale editable install — e.g. running `pip install -e .` from a temporary checkout or worktree and later deleting it, which orphans the install and breaks `devlog` everywhere, not just the scheduled task. If you ever see `ModuleNotFoundError: No module named 'devlog'` from the `devlog` command itself, check where the editable install actually points:
+
+```bash
+pip show devlog   # look at "Editable project location"
+```
+
+If it points somewhere that no longer exists, reinstall from the real repo checkout: `pip install -e ".[dev]"`.
 
 ## Delete a published post (Phase 4)
 

@@ -3,13 +3,27 @@ import sys
 import pytest
 
 from devlog.config import DevlogConfig
-from devlog.scheduler import build_wrapper_script, try_enable_task_history
+from devlog.scheduler import (
+    _verify_python_can_import_devlog,
+    build_wrapper_script,
+    try_enable_task_history,
+)
 
 
 def test_try_enable_task_history_noop_off_windows():
     if sys.platform == "win32":
         pytest.skip("only exercises the non-Windows short-circuit")
     assert try_enable_task_history() is False
+
+
+def test_verify_python_can_import_devlog_succeeds_for_current_python():
+    _verify_python_can_import_devlog(sys.executable)
+
+
+def test_verify_python_can_import_devlog_raises_for_missing_python(tmp_path):
+    missing = tmp_path / "nonexistent-python.exe"
+    with pytest.raises(RuntimeError, match="Cannot run"):
+        _verify_python_can_import_devlog(str(missing))
 
 
 def test_wrapper_script_rejects_cmd_metacharacters_in_repo_path():

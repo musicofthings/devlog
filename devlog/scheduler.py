@@ -69,6 +69,35 @@ def build_wrapper_script(
     )
 
 
+def _verify_python_can_import_devlog(python_exe: str) -> None:
+    """Confirm python_exe can actually import devlog before scheduling it.
+
+    A stale/broken editable install (e.g. `pip install -e .` run from a
+    directory that's since been deleted -- as happened on the maintainer's
+    machine after removing a worktree used for other work) makes every
+    scheduled run fail silently until someone happens to check the log.
+    Catching it now, at registration time, is far cheaper than discovering
+    it days later.
+    """
+    try:
+        result = subprocess.run(
+            [python_exe, "-c", "import devlog"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise RuntimeError(f"Cannot run {python_exe!r}: {exc}") from exc
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"{python_exe!r} cannot import devlog -- the scheduled task would "
+            "fail every night with this. This usually means the editable "
+            "install (`pip install -e .`) points at a directory that no "
+            "longer exists. Fix with:\n"
+            f'  "{python_exe}" -m pip install -e .\n'
+            f"Original error: {(result.stderr or result.stdout).strip()}"
+        )
+
+
 def register_windows_task(cfg: DevlogConfig, *, config_path: Path | None = None) -> str:
     """Register or replace a daily schtasks job. Returns task name."""
     if sys.platform != "win32":
@@ -76,11 +105,14 @@ def register_windows_task(cfg: DevlogConfig, *, config_path: Path | None = None)
     if not shutil.which("schtasks"):
         raise RuntimeError("schtasks not found on PATH")
 
+    python_exe = _python_exe()
+    _verify_python_can_import_devlog(python_exe)
+
     app_dir = _app_data_dir()
     app_dir.mkdir(parents=True, exist_ok=True)
     script_path = app_dir / "run_publish.cmd"
     script_path.write_text(
-        build_wrapper_script(cfg, config_path=config_path),
+        build_wrapper_script(cfg, python_exe=python_exe, config_path=config_path),
         encoding="utf-8",
     )
 
