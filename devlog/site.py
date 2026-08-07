@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 from datetime import date
 from pathlib import Path
 
+from devlog.gitutil import GitRunner, default_git
+
 _DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.md$")
+
+DELETE_WORKFLOW_FILE = "delete-post.yml"
+_GITHUB_REMOTE_RE = re.compile(r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$")
 
 SHARED_CSS = """
 * { box-sizing: border-box; }
@@ -74,6 +80,47 @@ h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 0 0 0.75rem; }
 }
 """
 
+ADMIN_CSS = """
+.admin {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px dashed var(--line);
+}
+.admin summary {
+  cursor: pointer;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.85rem;
+  color: var(--mist);
+}
+.admin .row {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  flex-wrap: wrap;
+}
+.admin input[type="password"] {
+  flex: 1;
+  min-width: 12rem;
+  font-family: "IBM Plex Mono", monospace;
+  padding: 0.4rem 0.5rem;
+}
+.admin button {
+  font-family: "IBM Plex Mono", monospace;
+  cursor: pointer;
+}
+.admin .status {
+  font-size: 0.8rem;
+  color: var(--mist);
+  margin-top: 0.5rem;
+}
+.feed .delete-btn {
+  margin-left: 0.75rem;
+  font-size: 0.78rem;
+  font-family: "IBM Plex Mono", monospace;
+  cursor: pointer;
+}
+"""
+
 FONT_LINKS = (
     '  <link rel="preconnect" href="https://fonts.googleapis.com" />\n'
     '  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />\n'
@@ -121,6 +168,25 @@ def list_posts(posts_dir: Path) -> list[tuple[date, Path, str]]:
         items.append((d, path, body))
     items.sort(key=lambda t: t[0], reverse=True)
     return items
+
+
+def detect_github_repo(repo_path: Path, git_run: GitRunner = default_git) -> str | None:
+    """Best-effort 'owner/repo' derived from the origin remote, for the admin delete panel.
+
+    Returns None (never raises) whenever detection isn't possible -- no .git
+    directory, no origin remote, or a remote that isn't a github.com URL --
+    so the feed just renders without the admin panel in those cases.
+    """
+    repo_path = Path(repo_path)
+    if not (repo_path / ".git").exists():
+        return None
+    result = git_run(["git", "remote", "get-url", "origin"], repo_path)
+    if result.returncode != 0:
+        return None
+    match = _GITHUB_REMOTE_RE.search(result.stdout.strip())
+    if not match:
+        return None
+    return f"{match.group('owner')}/{match.group('repo')}"
 
 
 def _post_plain(body: str) -> str:
@@ -186,25 +252,145 @@ def build_day_html(day: date, body: str) -> str:
     return _page(title, inner)
 
 
-def build_feed_html(posts: list[tuple[date, Path, str]]) -> str:
+def _js_string(value: str) -> str:
+    return json.dumps(value).replace("</", "<\\/")
+
+
+def _admin_panel_html(github_repo: str, branch: str) -> str:
+    return f"""
+<details class="admin">
+  <summary>Admin: manage posts</summary>
+  <p class="status">
+    Paste a GitHub fine-grained personal access token scoped to
+    <code>{html.escape(github_repo)}</code> with <strong>Actions: read and write</strong>
+    permission only (not Contents). It is saved in this browser's local storage and
+    never sent anywhere except api.github.com.
+  </p>
+  <div class="row">
+    <input type="password" id="devlog-token-input" placeholder="github_pat_..."
+           autocomplete="off" />
+    <button type="button" id="devlog-token-save">Save token</button>
+    <button type="button" id="devlog-token-clear">Clear token</button>
+  </div>
+  <p class="status" id="devlog-admin-status"></p>
+</details>
+<script>
+(function () {{
+  var REPO = {_js_string(github_repo)};
+  var WORKFLOW = {_js_string(DELETE_WORKFLOW_FILE)};
+  var BRANCH = {_js_string(branch)};
+  var STORAGE_KEY = "devlog-admin-token";
+  var statusEl = document.getElementById("devlog-admin-status");
+
+  function setStatus(msg) {{
+    if (statusEl) statusEl.textContent = msg;
+  }}
+  function getToken() {{
+    try {{ return localStorage.getItem(STORAGE_KEY) || ""; }}
+    catch (e) {{ return ""; }}
+  }}
+
+  var saveBtn = document.getElementById("devlog-token-save");
+  var clearBtn = document.getElementById("devlog-token-clear");
+  var input = document.getElementById("devlog-token-input");
+
+  if (saveBtn) {{
+    saveBtn.addEventListener("click", function () {{
+      try {{
+        localStorage.setItem(STORAGE_KEY, input.value.trim());
+        setStatus("Token saved.");
+      }} catch (e) {{
+        setStatus("Could not save token: " + e);
+      }}
+    }});
+  }}
+  if (clearBtn) {{
+    clearBtn.addEventListener("click", function () {{
+      try {{
+        localStorage.removeItem(STORAGE_KEY);
+        input.value = "";
+        setStatus("Token cleared.");
+      }} catch (e) {{
+        setStatus("Could not clear token: " + e);
+      }}
+    }});
+  }}
+
+  document.querySelectorAll(".delete-btn").forEach(function (btn) {{
+    btn.addEventListener("click", function () {{
+      var day = btn.getAttribute("data-date");
+      if (!confirm("Delete the " + day + " post? This pushes a real commit removing it.")) {{
+        return;
+      }}
+      var token = getToken();
+      if (!token) {{
+        setStatus("Save a token first.");
+        return;
+      }}
+      setStatus("Requesting delete of " + day + "...");
+      fetch(
+        "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW + "/dispatches",
+        {{
+          method: "POST",
+          headers: {{
+            "Authorization": "token " + token,
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json"
+          }},
+          body: JSON.stringify({{ ref: BRANCH, inputs: {{ date: day }} }})
+        }}
+      ).then(function (resp) {{
+        if (resp.status === 204) {{
+          setStatus("Delete requested for " + day + " -- refresh in about 30 seconds.");
+        }} else {{
+          resp.text().then(function (text) {{
+            setStatus("Delete request failed (" + resp.status + "): " + text);
+          }});
+        }}
+      }}).catch(function (err) {{
+        setStatus("Delete request failed: " + err);
+      }});
+    }});
+  }});
+}})();
+</script>
+"""
+
+
+def build_feed_html(
+    posts: list[tuple[date, Path, str]],
+    github_repo: str | None = None,
+    branch: str = "main",
+) -> str:
     if not posts:
         items = '<li><p class="excerpt">No posts yet.</p></li>'
     else:
         chunks: list[str] = []
         for day, _path, body in posts:
-            href = f"{day.isoformat()}.html"
+            iso = day.isoformat()
+            href = f"{iso}.html"
+            delete_btn = (
+                f'<button type="button" class="delete-btn" data-date="{iso}">Delete</button>'
+                if github_repo
+                else ""
+            )
             chunks.append(
                 "<li>"
-                f'<a href="{href}">{html.escape(day.isoformat())}</a>'
+                f'<a href="{href}">{html.escape(iso)}</a>'
+                f"{delete_btn}"
                 f'<p class="excerpt">{html.escape(_excerpt(body))}</p>'
                 "</li>"
             )
         items = "\n".join(chunks)
+    admin_html = _admin_panel_html(github_repo, branch) if github_repo else ""
+    admin_css = f"<style>{ADMIN_CSS}</style>" if github_repo else ""
     inner = f"""<h1>Log</h1>
 <p class="meta">Reverse-chronological daily build logs</p>
 <ul class="feed">
 {items}
 </ul>
+{admin_html}
+{admin_css}
 """
     return _page("Log", inner)
 
@@ -218,7 +404,9 @@ def write_post_markdown(posts_dir: Path, day: date, post_body: str, *, force: bo
     return path
 
 
-def rebuild_site(repo_path: Path) -> list[Path]:
+def rebuild_site(
+    repo_path: Path, git_run: GitRunner = default_git, branch: str = "main"
+) -> list[Path]:
     """Rebuild docs/log from posts/*.md.
 
     Returns every path whose resulting git state should be staged, including
@@ -236,8 +424,11 @@ def rebuild_site(repo_path: Path) -> list[Path]:
         written.append(nojekyll)
 
     posts = list_posts(posts_dir)
+    github_repo = detect_github_repo(repo_path, git_run)
     feed_path = log_dir / "index.html"
-    feed_path.write_text(build_feed_html(posts), encoding="utf-8")
+    feed_path.write_text(
+        build_feed_html(posts, github_repo=github_repo, branch=branch), encoding="utf-8"
+    )
     written.append(feed_path)
 
     existing = {p.name for p in log_dir.glob("????-??-??.html")}

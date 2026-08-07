@@ -128,3 +128,20 @@ def test_multi_source_roots(tmp_path: Path, monkeypatch, capsys):
     assert "[codex] found" in out
     assert "[cursor] found" in out
     assert "session" in out.lower() or "Daily post" in out
+
+
+def test_main_dispatches_delete_subcommand(monkeypatch):
+    import devlog.delete_cmd
+
+    calls = []
+
+    def fake_cmd_delete(argv):
+        calls.append(argv)
+        return 0
+
+    monkeypatch.setattr(devlog.delete_cmd, "cmd_delete", fake_cmd_delete)
+
+    code = main(["delete", "--date", "2026-07-20"])
+
+    assert code == 0
+    assert calls == [["--date", "2026-07-20"]]

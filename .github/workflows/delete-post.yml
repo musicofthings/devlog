@@ -1,0 +1,52 @@
+name: Delete devlog post
+
+# Triggered from the admin panel on docs/log/index.html via the GitHub API's
+# workflow_dispatch endpoint, using a personal token scoped to Actions:
+# read/write only. This job's own GITHUB_TOKEN does the actual commit/push,
+# so that personal token never needs repo-contents write access.
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Post date to delete (YYYY-MM-DD)"
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e .
+
+      - name: Configure devlog
+        run: devlog init --defaults
+
+      - name: Delete post
+        run: devlog delete --date "$DELETE_DATE"
+        env:
+          DELETE_DATE: ${{ github.event.inputs.date }}
+          GIT_AUTHOR_NAME: devlog-bot
+          GIT_AUTHOR_EMAIL: devlog-bot@users.noreply.github.com
+          GIT_COMMITTER_NAME: devlog-bot
+          GIT_COMMITTER_EMAIL: devlog-bot@users.noreply.github.com
+
+      - name: Redeploy Pages
+        run: gh workflow run pages.yml --ref ${{ github.ref_name }}
+        env:
+          GH_TOKEN: ${{ github.token }}

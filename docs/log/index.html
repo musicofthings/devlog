@@ -100,12 +100,150 @@ h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 0 0 0.75rem; }
     <h1>Log</h1>
 <p class="meta">Reverse-chronological daily build logs</p>
 <ul class="feed">
-<li><a href="2026-07-22.html">2026-07-22</a><p class="excerpt">Hardened the publish CLI and rebuilt the GitHub Pages log feed from posts.</p></li>
-<li><a href="2026-07-21.html">2026-07-21</a><p class="excerpt">Wired Cursor agent-transcript ingestion and confirmed multi-source digests merge cleanly.</p></li>
-<li><a href="2026-07-20.html">2026-07-20</a><p class="excerpt">Shipped Codex and Cursor source plugins and merged them into one daily post.</p></li>
-<li><a href="2026-07-19.html">2026-07-19</a><p class="excerpt">Reviewed the Gurukul architecture notes in Codex and sketched the Shishya pod loop.</p></li>
-<li><a href="2026-07-18.html">2026-07-18</a><p class="excerpt">Worked on VariantGPT VCF streaming and tightened pytest coverage for the parser.</p></li>
+<li><a href="2026-07-22.html">2026-07-22</a><button type="button" class="delete-btn" data-date="2026-07-22">Delete</button><p class="excerpt">Hardened the publish CLI and rebuilt the GitHub Pages log feed from posts.</p></li>
+<li><a href="2026-07-21.html">2026-07-21</a><button type="button" class="delete-btn" data-date="2026-07-21">Delete</button><p class="excerpt">Wired Cursor agent-transcript ingestion and confirmed multi-source digests merge cleanly.</p></li>
+<li><a href="2026-07-20.html">2026-07-20</a><button type="button" class="delete-btn" data-date="2026-07-20">Delete</button><p class="excerpt">Shipped Codex and Cursor source plugins and merged them into one daily post.</p></li>
+<li><a href="2026-07-19.html">2026-07-19</a><button type="button" class="delete-btn" data-date="2026-07-19">Delete</button><p class="excerpt">Reviewed the Gurukul architecture notes in Codex and sketched the Shishya pod loop.</p></li>
+<li><a href="2026-07-18.html">2026-07-18</a><button type="button" class="delete-btn" data-date="2026-07-18">Delete</button><p class="excerpt">Worked on VariantGPT VCF streaming and tightened pytest coverage for the parser.</p></li>
 </ul>
+
+<details class="admin">
+  <summary>Admin: manage posts</summary>
+  <p class="status">
+    Paste a GitHub fine-grained personal access token scoped to
+    <code>musicofthings/devlog</code> with <strong>Actions: read and write</strong>
+    permission only (not Contents). It is saved in this browser's local storage and
+    never sent anywhere except api.github.com.
+  </p>
+  <div class="row">
+    <input type="password" id="devlog-token-input" placeholder="github_pat_..."
+           autocomplete="off" />
+    <button type="button" id="devlog-token-save">Save token</button>
+    <button type="button" id="devlog-token-clear">Clear token</button>
+  </div>
+  <p class="status" id="devlog-admin-status"></p>
+</details>
+<script>
+(function () {
+  var REPO = "musicofthings/devlog";
+  var WORKFLOW = "delete-post.yml";
+  var BRANCH = "main";
+  var STORAGE_KEY = "devlog-admin-token";
+  var statusEl = document.getElementById("devlog-admin-status");
+
+  function setStatus(msg) {
+    if (statusEl) statusEl.textContent = msg;
+  }
+  function getToken() {
+    try { return localStorage.getItem(STORAGE_KEY) || ""; }
+    catch (e) { return ""; }
+  }
+
+  var saveBtn = document.getElementById("devlog-token-save");
+  var clearBtn = document.getElementById("devlog-token-clear");
+  var input = document.getElementById("devlog-token-input");
+
+  if (saveBtn) {
+    saveBtn.addEventListener("click", function () {
+      try {
+        localStorage.setItem(STORAGE_KEY, input.value.trim());
+        setStatus("Token saved.");
+      } catch (e) {
+        setStatus("Could not save token: " + e);
+      }
+    });
+  }
+  if (clearBtn) {
+    clearBtn.addEventListener("click", function () {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+        input.value = "";
+        setStatus("Token cleared.");
+      } catch (e) {
+        setStatus("Could not clear token: " + e);
+      }
+    });
+  }
+
+  document.querySelectorAll(".delete-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var day = btn.getAttribute("data-date");
+      if (!confirm("Delete the " + day + " post? This pushes a real commit removing it.")) {
+        return;
+      }
+      var token = getToken();
+      if (!token) {
+        setStatus("Save a token first.");
+        return;
+      }
+      setStatus("Requesting delete of " + day + "...");
+      fetch(
+        "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW + "/dispatches",
+        {
+          method: "POST",
+          headers: {
+            "Authorization": "token " + token,
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ ref: BRANCH, inputs: { date: day } })
+        }
+      ).then(function (resp) {
+        if (resp.status === 204) {
+          setStatus("Delete requested for " + day + " -- refresh in about 30 seconds.");
+        } else {
+          resp.text().then(function (text) {
+            setStatus("Delete request failed (" + resp.status + "): " + text);
+          });
+        }
+      }).catch(function (err) {
+        setStatus("Delete request failed: " + err);
+      });
+    });
+  });
+})();
+</script>
+
+<style>
+.admin {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px dashed var(--line);
+}
+.admin summary {
+  cursor: pointer;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.85rem;
+  color: var(--mist);
+}
+.admin .row {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  flex-wrap: wrap;
+}
+.admin input[type="password"] {
+  flex: 1;
+  min-width: 12rem;
+  font-family: "IBM Plex Mono", monospace;
+  padding: 0.4rem 0.5rem;
+}
+.admin button {
+  font-family: "IBM Plex Mono", monospace;
+  cursor: pointer;
+}
+.admin .status {
+  font-size: 0.8rem;
+  color: var(--mist);
+  margin-top: 0.5rem;
+}
+.feed .delete-btn {
+  margin-left: 0.75rem;
+  font-size: 0.78rem;
+  font-family: "IBM Plex Mono", monospace;
+  cursor: pointer;
+}
+</style>
 
   </div>
   <script src="../assets/theme.js"></script>

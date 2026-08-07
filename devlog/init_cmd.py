@@ -77,6 +77,8 @@ def pages_checklist() -> str:
         "\nPrivacy note: published posts can include project paths AND the text of\n"
         "your prompts to the AI tools. With publish_mode=auto they go public with\n"
         "no review — keep 'manual' or 'pr' unless you accept that.\n"
+        "\nUse `devlog delete --date YYYY-MM-DD` to retract a post -- it's a real\n"
+        "git removal, recoverable only via git history, not a soft-hide.\n"
     )
 
 

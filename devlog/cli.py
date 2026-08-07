@@ -138,6 +138,10 @@ def main(argv: list[str] | None = None) -> int:
         from devlog.publish import cmd_publish
 
         return cmd_publish(argv[1:])
+    if argv and argv[0] == "delete":
+        from devlog.delete_cmd import cmd_delete
+
+        return cmd_delete(argv[1:])
     if argv and argv[0] in {"run", "generate"}:
         return cmd_run(argv[1:])
     return cmd_run(argv)

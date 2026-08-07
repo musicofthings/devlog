@@ -33,6 +33,19 @@ def _cmd_quote(value: str) -> str:
     return f'"{value.replace("%", "%%")}"'
 
 
+def _windows_style_path(value: str) -> str:
+    """Render an absolute path using Windows-style backslashes.
+
+    devlog/config.py normalizes stored paths to forward slashes (to avoid
+    corrupting TOML's backslash escaping), but this always generates a
+    Windows .cmd script -- the output must not depend on which OS happens to
+    be running this string-generation logic (e.g. it's unit-tested on Linux
+    CI, where pathlib renders paths with forward slashes rather than
+    converting them to the Windows separator).
+    """
+    return str(Path(value).expanduser()).replace("/", "\\")
+
+
 def build_wrapper_script(
     cfg: DevlogConfig,
     *,
@@ -44,7 +57,7 @@ def build_wrapper_script(
     A wrapper script sidesteps schtasks /TR quoting problems with paths that
     contain spaces, and gives the run a log file (schtasks discards output).
     """
-    repo = str(Path(cfg.repo_path).expanduser())
+    repo = _windows_style_path(cfg.repo_path)
     python = python_exe or _python_exe()
     log = str(_app_data_dir() / LOG_NAME)
     config_arg = f" --config {_cmd_quote(str(config_path.resolve()))}" if config_path else ""

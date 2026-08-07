@@ -10,7 +10,7 @@ Turns local AI coding session history into one short, factual, first-person
 
 | Suite | Result |
 |-------|--------|
-| `pytest` | **74 passed** |
+| `pytest` | **90 passed** |
 | Offline evals (`python -m evals.run`) | **8/8 passed** |
 | Live evals (`python -m evals.run --live`) | **8/8 passed** |
 
@@ -22,7 +22,9 @@ empty-day API skip, explicit external-API consent, and a 5-sentence output clamp
 ```
 devlog/
   cli.py              # argparse entrypoint (per-source roots)
+  delete_cmd.py       # devlog delete: remove a published post + push the removal
   digest.py           # calendar-day slicing (local timezone) + compact digests
+  gitutil.py          # shared git add/commit/push plumbing (publish + delete)
   models.py           # RawSession, SessionDigest
   summarize.py        # digest → post (Claude API or template fallback)
   sources/
@@ -46,7 +48,7 @@ pip install -e ".[dev]"
 ```
 
 This also installs a `devlog` console command (`devlog run`, `devlog init`,
-`devlog publish`) — everything below works with either `devlog` or
+`devlog publish`, `devlog delete`) — everything below works with either `devlog` or
 `python main.py` interchangeably; `python main.py` needs no install step.
 
 ## Run
@@ -101,7 +103,7 @@ Missing roots are skipped (other sources still run).
 
 ```bash
 python -m pytest
-# expected: 74 passed
+# expected: 90 passed
 ```
 
 ## Evals
@@ -139,6 +141,19 @@ Public URLs after deploy:
 - Landing: https://musicofthings.github.io/devlog/
 - Log feed: https://musicofthings.github.io/devlog/log/
 - Day post: https://musicofthings.github.io/devlog/log/YYYY-MM-DD.html
+
+## Delete a published post (Phase 4)
+
+`publish_mode = auto` means posts go public with no review, so there's a way to take one back down without touching the machine that owns the repo:
+
+```bash
+devlog delete --date 2026-07-20          # removes posts/2026-07-20.md, rebuilds the site, commits, pushes
+devlog delete --date 2026-07-20 --dry-run
+```
+
+The same thing is available from the live site itself: `docs/log/index.html` renders an "Admin: manage posts" panel (only when the repo's `origin` remote points at GitHub — auto-detected, no config needed). Paste a GitHub **fine-grained personal access token scoped to this repo, with Actions: read and write permission only** (not Contents) into the token field — it's saved in your browser's local storage and never sent anywhere except `api.github.com`. Clicking Delete on a post triggers `.github/workflows/delete-post.yml`, which runs `devlog delete` with the workflow's own repo-write credentials — your personal token only ever needs permission to trigger the workflow, never to write repository contents directly.
+
+Deletion is real: it's a normal commit removing `posts/YYYY-MM-DD.md` and rebuilding `docs/log/`. It's recoverable from git history on a full clone, but gone from the live site and any future clone going forward.
 
 ## Manual acceptance
 
