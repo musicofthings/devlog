@@ -367,3 +367,100 @@ def test_list_posts_ignores_invalid_calendar_dates(tmp_path: Path):
     items = list_posts(posts)
 
     assert [day.isoformat() for day, _, _ in items] == ["2026-07-20"]
+
+
+def test_detect_github_repo_from_https_remote(tmp_path: Path):
+    from devlog.site import detect_github_repo
+
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+
+    def fake_git(cmd, cwd):
+        from subprocess import CompletedProcess
+
+        assert cmd == ["git", "remote", "get-url", "origin"]
+        return CompletedProcess(
+            cmd, 0, stdout="https://github.com/someone/theirfork.git\n", stderr=""
+        )
+
+    assert detect_github_repo(repo, git_run=fake_git) == "someone/theirfork"
+
+
+def test_detect_github_repo_from_ssh_remote(tmp_path: Path):
+    from devlog.site import detect_github_repo
+
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+
+    def fake_git(cmd, cwd):
+        from subprocess import CompletedProcess
+
+        return CompletedProcess(cmd, 0, stdout="git@github.com:someone/theirfork.git\n", stderr="")
+
+    assert detect_github_repo(repo, git_run=fake_git) == "someone/theirfork"
+
+
+def test_detect_github_repo_returns_none_without_git_dir(tmp_path: Path):
+    from devlog.site import detect_github_repo
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def fail_git(cmd, cwd):
+        raise AssertionError("git should not be invoked without a .git directory")
+
+    assert detect_github_repo(repo, git_run=fail_git) is None
+
+
+def test_detect_github_repo_returns_none_when_git_fails(tmp_path: Path):
+    from devlog.site import detect_github_repo
+
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+
+    def failing_git(cmd, cwd):
+        from subprocess import CompletedProcess
+
+        return CompletedProcess(cmd, 128, stdout="", stderr="fatal: no such remote 'origin'")
+
+    assert detect_github_repo(repo, git_run=failing_git) is None
+
+
+def test_feed_includes_admin_panel_when_repo_detected(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    write_post_markdown(repo / "posts", date(2026, 7, 20), "Built the Codex parser today.")
+
+    def fake_git(cmd, cwd):
+        from subprocess import CompletedProcess
+
+        return CompletedProcess(cmd, 0, stdout="git@github.com:someone/theirfork.git\n", stderr="")
+
+    rebuild_site(repo, git_run=fake_git)
+    feed = (repo / "docs" / "log" / "index.html").read_text(encoding="utf-8")
+
+    assert "someone/theirfork" in feed
+    assert 'class="delete-btn" data-date="2026-07-20"' in feed
+    assert "Admin: manage posts" in feed
+    assert "Actions: read and write" in feed
+
+
+def test_feed_omits_admin_panel_without_git_repo(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    write_post_markdown(repo / "posts", date(2026, 7, 20), "Built the Codex parser today.")
+
+    rebuild_site(repo)
+    feed = (repo / "docs" / "log" / "index.html").read_text(encoding="utf-8")
+
+    assert "Admin: manage posts" not in feed
+    assert "delete-btn" not in feed
