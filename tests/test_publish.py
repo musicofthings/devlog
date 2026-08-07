@@ -458,6 +458,39 @@ def test_feed_includes_admin_panel_when_repo_detected(tmp_path: Path):
     assert 'class="delete-btn" data-date="2026-07-20"' in feed
     assert "Admin: manage posts" in feed
     assert "Actions: read and write" in feed
+    # "Public Repositories (read-only)" silently caps a fine-grained PAT to
+    # read-only regardless of the Actions permission checkbox, producing a
+    # 403 "Resource not accessible by personal access token" on dispatch --
+    # a real failure a user hit in practice. The panel must warn about it.
+    assert "Only select repositories" in feed
+    assert "Public Repositories" in feed
+
+
+def test_admin_panel_403_gets_actionable_hint(tmp_path: Path):
+    """A bare "403: {message}" tells a user nothing actionable. The most
+    common real cause is picking "Public Repositories (read-only)" instead
+    of "Only select repositories" when creating the token -- confirmed by a
+    real user hitting exactly this. The inline error must say so, not just
+    the static instructions above the token field."""
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    write_post_markdown(repo / "posts", date(2026, 7, 20), "Built the Codex parser today.")
+
+    def fake_git(cmd, cwd):
+        from subprocess import CompletedProcess
+
+        return CompletedProcess(cmd, 0, stdout="git@github.com:someone/theirfork.git\n", stderr="")
+
+    rebuild_site(repo, git_run=fake_git)
+    feed = (repo / "docs" / "log" / "index.html").read_text(encoding="utf-8")
+
+    assert "resp.status === 403" in feed
+    assert "Repository access" in feed
 
 
 def test_admin_panel_status_forces_details_open(tmp_path: Path):

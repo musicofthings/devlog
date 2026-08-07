@@ -267,6 +267,13 @@ def _admin_panel_html(github_repo: str, branch: str) -> str:
     permission only (not Contents). It is saved in this browser's local storage and
     never sent anywhere except api.github.com.
   </p>
+  <p class="status">
+    When creating it, set <strong>Repository access</strong> to
+    <strong>"Only select repositories"</strong> and pick this repo — choosing
+    <strong>"Public Repositories (read-only)"</strong> silently caps the token to
+    read-only no matter what you set Actions to below it, and Delete will fail with
+    "403 Resource not accessible by personal access token".
+  </p>
   <div class="row">
     <input type="password" id="devlog-token-input" placeholder="github_pat_..."
            autocomplete="off" />
@@ -353,6 +360,13 @@ def _admin_panel_html(github_repo: str, branch: str) -> str:
       ).then(function (resp) {{
         if (resp.status === 204) {{
           setStatus("Delete requested for " + day + " -- refresh in about 30 seconds.");
+        }} else if (resp.status === 403) {{
+          setStatus(
+            "Delete request failed (403): token can't trigger this workflow. " +
+            "Check the token's Repository access is \"Only select repositories\" " +
+            "(not \"Public Repositories (read-only)\", which silently forces " +
+            "read-only) and that Actions permission is \"Read and write\"."
+          );
         }} else {{
           resp.text().then(function (text) {{
             setStatus("Delete request failed (" + resp.status + "): " + text);

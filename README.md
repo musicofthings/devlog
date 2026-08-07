@@ -10,7 +10,7 @@ Turns local AI coding session history into one short, factual, first-person
 
 | Suite | Result |
 |-------|--------|
-| `pytest` | **104 passed** |
+| `pytest` | **105 passed** |
 | Offline evals (`python -m evals.run`) | **8/8 passed** |
 | Live evals (`python -m evals.run --live`) | **8/8 passed** |
 
@@ -104,7 +104,7 @@ Missing roots are skipped (other sources still run).
 
 ```bash
 python -m pytest
-# expected: 104 passed
+# expected: 105 passed
 ```
 
 ## Evals
@@ -187,6 +187,10 @@ The same thing is available from the live site itself: `docs/log/index.html` ren
 The admin panel is collapsed by default. Clicking Delete (or clicking Save token with nothing entered) automatically expands it and scrolls it into view so the result — "Save a token first", "Delete requested…", or an error — is always visible; it doesn't stay hidden just because the panel happened to load closed.
 
 Deletion is real: it's a normal commit removing `posts/YYYY-MM-DD.md` and rebuilding `docs/log/`. It's recoverable from git history on a full clone, but gone from the live site and any future clone going forward.
+
+### Troubleshooting: Delete fails with `403 Resource not accessible by personal access token`
+
+The most common cause, confirmed in practice: when creating the fine-grained token at https://github.com/settings/personal-access-tokens, the **Repository access** radio button was left on **"Public Repositories (read-only)"** instead of switched to **"Only select repositories"** with this repo picked. That option silently forces the whole token to read-only no matter what you set the Actions permission checkbox to below it — Actions still shows "Read and write" in the UI, but the token can't actually write anything. Fix: create a new token with Repository access set to "Only select repositories," this repo selected, and Actions permission "Read and write." The admin panel's inline error message for a 403 repeats this same check.
 
 ### Knowing what actually happened
 
