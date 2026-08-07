@@ -99,14 +99,16 @@ h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 0 0 0.75rem; }
     </nav>
     <h1>Log</h1>
 <p class="meta">Reverse-chronological daily build logs</p>
+<p class="meta status-line">Last published: 2026-08-07 (2026-08-07 16:22 UTC)</p>
 <ul class="feed">
+<li><a href="2026-08-07.html">2026-08-07</a><button type="button" class="delete-btn" data-date="2026-08-07">Delete</button><p class="excerpt">Today I logged 256 active min across delete-post, devlog. I worked on devlog: git sync and run full repo review; delete-post: Review this change for security v…</p></li>
 <li><a href="2026-08-06.html">2026-08-06</a><button type="button" class="delete-btn" data-date="2026-08-06">Delete</button><p class="excerpt">Today I logged 9 active min across shibi. I worked on shibi: remove all mcp servers that need authentication, i am not using it. Tools: Bash (16x), Skill (1x),…</p></li>
 <li><a href="2026-07-22.html">2026-07-22</a><button type="button" class="delete-btn" data-date="2026-07-22">Delete</button><p class="excerpt">Hardened the publish CLI and rebuilt the GitHub Pages log feed from posts.</p></li>
 <li><a href="2026-07-21.html">2026-07-21</a><button type="button" class="delete-btn" data-date="2026-07-21">Delete</button><p class="excerpt">Wired Cursor agent-transcript ingestion and confirmed multi-source digests merge cleanly.</p></li>
 <li><a href="2026-07-20.html">2026-07-20</a><button type="button" class="delete-btn" data-date="2026-07-20">Delete</button><p class="excerpt">Shipped Codex and Cursor source plugins and merged them into one daily post.</p></li>
 </ul>
 
-<details class="admin">
+<details class="admin" id="devlog-admin-details">
   <summary>Admin: manage posts</summary>
   <p class="status">
     Paste a GitHub fine-grained personal access token scoped to
@@ -129,9 +131,19 @@ h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 0 0 0.75rem; }
   var BRANCH = "main";
   var STORAGE_KEY = "devlog-admin-token";
   var statusEl = document.getElementById("devlog-admin-status");
+  var detailsEl = document.getElementById("devlog-admin-details");
 
   function setStatus(msg) {
     if (statusEl) statusEl.textContent = msg;
+    // The admin panel is a collapsed <details> by default and stays closed
+    // across page loads. Without forcing it open, every status this
+    // function reports -- "save a token first", a delete failure, a delete
+    // success -- renders invisibly, and clicking Delete looks like nothing
+    // happened at all.
+    if (detailsEl) {
+      detailsEl.open = true;
+      detailsEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
   }
   function getToken() {
     try { return localStorage.getItem(STORAGE_KEY) || ""; }
