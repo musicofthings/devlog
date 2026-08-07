@@ -23,6 +23,14 @@ def _app_data_dir() -> Path:
     return Path(base) / "devlog"
 
 
+PUBLISH_NOW_NAME = "Publish Devlog Now.cmd"
+
+
+def _desktop_dir() -> Path:
+    base = os.environ.get("USERPROFILE") or str(Path.home())
+    return Path(base) / "Desktop"
+
+
 _UNSAFE_CMD_CHARS = {'"', "\r", "\n", "&", "|", "<", ">", "^"}
 
 
@@ -96,6 +104,40 @@ def _verify_python_can_import_devlog(python_exe: str) -> None:
             f'  "{python_exe}" -m pip install -e .\n'
             f"Original error: {(result.stderr or result.stdout).strip()}"
         )
+
+
+def write_publish_now_shortcut(
+    cfg: DevlogConfig,
+    *,
+    python_exe: str | None = None,
+    config_path: Path | None = None,
+    desktop_dir: Path | None = None,
+) -> Path:
+    """Write a double-clickable .cmd that publishes immediately.
+
+    Runs plain `devlog publish` (using its own default date, not a hardcoded
+    "yesterday" like the nightly wrapper script), with an interactive window
+    that stays open (`pause`) so the user actually sees the result -- unlike
+    the scheduled task, this is meant to be watched, not run headless.
+    """
+    resolved_python = python_exe or _python_exe()
+    _verify_python_can_import_devlog(resolved_python)
+
+    repo = _windows_style_path(cfg.repo_path)
+    config_arg = f" --config {_cmd_quote(str(config_path.resolve()))}" if config_path else ""
+    script = (
+        "@echo off\r\n"
+        f"cd /d {_cmd_quote(repo)}\r\n"
+        f"{_cmd_quote(resolved_python)} -m devlog publish --verbose{config_arg}\r\n"
+        "echo.\r\n"
+        "pause\r\n"
+    )
+
+    target_dir = desktop_dir or _desktop_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    path = target_dir / PUBLISH_NOW_NAME
+    path.write_text(script, encoding="utf-8")
+    return path
 
 
 def register_windows_task(cfg: DevlogConfig, *, config_path: Path | None = None) -> str:

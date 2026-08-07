@@ -21,7 +21,17 @@ def test_save_and_load_config(tmp_path: Path):
     assert loaded.sources == ["claude_code", "codex", "cursor"]
 
 
-def test_init_defaults(tmp_path: Path):
+def test_init_defaults(tmp_path: Path, monkeypatch):
+    # cmd_init's --no-schedule path calls the real unregister_windows_task()
+    # and write_publish_now_shortcut() with no test seam of their own -- left
+    # unmocked, this test deletes the real DailyDevLogPublish scheduled task
+    # and writes a real file to the developer's actual Desktop on every run.
+    monkeypatch.setattr("devlog.init_cmd.unregister_windows_task", lambda: None)
+    monkeypatch.setattr(
+        "devlog.init_cmd.write_publish_now_shortcut",
+        lambda cfg, **kwargs: tmp_path / "Publish Devlog Now.cmd",
+    )
+
     cfg_path = tmp_path / "devlog" / "config.toml"
     code = cmd_init(["--defaults", "--no-schedule", "--config", str(cfg_path)])
     assert code == 0
@@ -475,6 +485,44 @@ def test_admin_panel_status_forces_details_open(tmp_path: Path):
     admin_script = feed[feed.index("function setStatus") : feed.index("function getToken")]
     assert "detailsEl.open = true" in admin_script
     assert "scrollIntoView" in admin_script
+
+
+def test_feed_shows_last_published_and_deleted_status(tmp_path: Path):
+    from devlog.status import record_event
+
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    write_post_markdown(repo / "posts", date(2026, 8, 6), "Removed unused MCP servers.")
+    record_event(repo, event="published", date="2026-08-06", at="2026-08-07T06:30:00+00:00")
+    record_event(repo, event="deleted", date="2026-07-19", at="2026-08-07T07:03:15+00:00")
+
+    rebuild_site(repo)
+    feed = (repo / "docs" / "log" / "index.html").read_text(encoding="utf-8")
+
+    assert "Last published: 2026-08-06" in feed
+    assert "2026-08-07 06:30 UTC" in feed
+    assert "Last deleted: 2026-07-19" in feed
+    assert "2026-08-07 07:03 UTC" in feed
+
+
+def test_feed_omits_status_line_when_no_status_recorded(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    write_post_markdown(repo / "posts", date(2026, 8, 6), "Removed unused MCP servers.")
+
+    rebuild_site(repo)
+    feed = (repo / "docs" / "log" / "index.html").read_text(encoding="utf-8")
+
+    assert "Last published" not in feed
+    assert "Last deleted" not in feed
 
 
 def test_admin_panel_dispatch_uses_configured_branch(tmp_path: Path):

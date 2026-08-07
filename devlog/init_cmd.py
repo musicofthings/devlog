@@ -18,6 +18,7 @@ from devlog.scheduler import (
     register_windows_task,
     try_enable_task_history,
     unregister_windows_task,
+    write_publish_now_shortcut,
 )
 
 
@@ -132,6 +133,12 @@ def cmd_init(argv: list[str] | None = None) -> int:
     saved = save_config(cfg, cfg_path)
     print(f"Wrote config: {saved}")
     print(pages_checklist())
+
+    try:
+        shortcut = write_publish_now_shortcut(cfg, config_path=saved)
+        print(f"Publish-now shortcut written: {shortcut} (double-click to publish immediately)")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[note] Could not write publish-now shortcut: {exc}")
 
     do_schedule = args.schedule
     if not args.defaults and not args.schedule and not args.no_schedule:

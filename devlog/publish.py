@@ -12,9 +12,10 @@ from devlog.gitutil import GitRunner, add_and_commit, commit_and_push
 from devlog.gitutil import default_git as _default_git
 from devlog.models import RawSession
 from devlog.site import rebuild_site, write_post_markdown
+from devlog.status import record_event
 from devlog.summarize import generate_post
 
-MANAGED_PATHS = ("posts/", "docs/log/", "docs/.nojekyll", "docs/index.html")
+MANAGED_PATHS = ("posts/", "docs/log/", "docs/.nojekyll", "docs/index.html", ".devlog-status.json")
 
 
 def resolve_publish_date(raw: str, *, today: date | None = None) -> date:
@@ -187,8 +188,9 @@ def publish_day(
         }
 
     write_post_markdown(posts_dir, target, body, force=force)
+    status_file = record_event(repo, event="published", date=target.isoformat())
     written = rebuild_site(repo, git_run=git_run, branch=cfg.branch)
-    artifacts = [post_path, *written]
+    artifacts = [post_path, status_file, *written]
 
     result = {
         "status": "written",

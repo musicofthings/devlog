@@ -59,7 +59,8 @@ def test_delete_removes_post_prunes_html_and_pushes(tmp_path: Path):
     assert not (repo / "posts" / "2026-07-20.md").exists()
     assert not (repo / "docs" / "log" / "2026-07-20.html").exists()
     feed = (repo / "docs" / "log" / "index.html").read_text(encoding="utf-8")
-    assert "2026-07-20" not in feed
+    assert 'href="2026-07-20.html"' not in feed
+    assert "Last deleted: 2026-07-20" in feed
     commit_call = next(c for c in calls if c[:2] == ["git", "commit"])
     assert commit_call[-1] == "delete: devlog 2026-07-20"
     assert any(c[:2] == ["git", "push"] for c in calls)

@@ -10,7 +10,7 @@ Turns local AI coding session history into one short, factual, first-person
 
 | Suite | Result |
 |-------|--------|
-| `pytest` | **94 passed** |
+| `pytest` | **104 passed** |
 | Offline evals (`python -m evals.run`) | **8/8 passed** |
 | Live evals (`python -m evals.run --live`) | **8/8 passed** |
 
@@ -26,6 +26,7 @@ devlog/
   digest.py           # calendar-day slicing (local timezone) + compact digests
   gitutil.py          # shared git add/commit/push plumbing (publish + delete)
   models.py           # RawSession, SessionDigest
+  status.py           # .devlog-status.json: last publish/delete, shown on the feed page
   summarize.py        # digest → post (Claude API or template fallback)
   sources/
     base.py           # plugin registry
@@ -103,7 +104,7 @@ Missing roots are skipped (other sources still run).
 
 ```bash
 python -m pytest
-# expected: 94 passed
+# expected: 104 passed
 ```
 
 ## Evals
@@ -133,6 +134,8 @@ devlog publish                  # uses publish_mode from config: auto | pr | man
 devlog publish --date 2026-07-20 --force
 ```
 
+Publishing always runs locally — your session transcripts never leave this machine, so there's no "publish" button on the website. To publish on demand instead of waiting for the nightly schedule, either run `devlog publish` yourself, or double-click the `Publish Devlog Now.cmd` shortcut `devlog init` writes to your Desktop (opens a window, shows the result, waits for a keypress so you actually see it).
+
 Enable GitHub Pages: repo **Settings → Pages → Source: GitHub Actions**
 (workflow: `.github/workflows/pages.yml` uploads `docs/` as the site root).
 
@@ -151,6 +154,8 @@ schtasks /Query /TN DailyDevLogPublish /V /FO LIST
 ```
 
 `ERROR: The system cannot find the file specified` means the task was removed — Windows Task Scheduler does not keep a history of *why* by default, so there's usually no trail explaining it. Re-run `devlog init` (with `--schedule` if you're not doing the interactive prompts) to register it again.
+
+One confirmed cause, already fixed: `pytest` used to call the real `unregister_windows_task()` (via `cmd_init`'s `--no-schedule` path in `test_init_defaults`) with no test seam, so simply running the test suite on a machine that had the task registered would silently delete it. The test now mocks that call. If you're developing devlog itself, keep an eye out for any new test that exercises `cmd_init`, `register_windows_task`, or `unregister_windows_task` without mocking them — those are the only functions in this codebase allowed to touch the real Windows Task Scheduler.
 
 `devlog init` also makes a best-effort attempt to turn on Task Scheduler's operational event log, so a future disappearance leaves a diagnosable trail next time. This needs admin elevation, which `devlog init` does not have by default, so it will usually print a note that it couldn't. To enable it yourself, open **PowerShell as Administrator** (a regular PowerShell window is not enough, even one you opened yourself) and run:
 
@@ -179,7 +184,13 @@ devlog delete --date 2026-07-20 --dry-run
 
 The same thing is available from the live site itself: `docs/log/index.html` renders an "Admin: manage posts" panel (only when the repo's `origin` remote points at GitHub — auto-detected, no config needed). Paste a GitHub **fine-grained personal access token scoped to this repo, with Actions: read and write permission only** (not Contents) into the token field — it's saved in your browser's local storage and never sent anywhere except `api.github.com`. Clicking Delete on a post triggers `.github/workflows/delete-post.yml`, which runs `devlog delete` with the workflow's own repo-write credentials — your personal token only ever needs permission to trigger the workflow, never to write repository contents directly.
 
+The admin panel is collapsed by default. Clicking Delete (or clicking Save token with nothing entered) automatically expands it and scrolls it into view so the result — "Save a token first", "Delete requested…", or an error — is always visible; it doesn't stay hidden just because the panel happened to load closed.
+
 Deletion is real: it's a normal commit removing `posts/YYYY-MM-DD.md` and rebuilding `docs/log/`. It's recoverable from git history on a full clone, but gone from the live site and any future clone going forward.
+
+### Knowing what actually happened
+
+The feed page shows a small status line — "Last published: 2026-08-06 (2026-08-07 06:30 UTC) · Last deleted: 2026-07-19 (2026-08-07 07:03 UTC)" — sourced from a small `.devlog-status.json` file at the repo root that both `devlog publish` and `devlog delete` update as part of their normal commit. It only appears once at least one publish or delete has actually happened; there's nothing to show on a brand-new site.
 
 ## Manual acceptance
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from devlog.config import DevlogConfig, default_config_path, load_config
 from devlog.gitutil import GitRunner, commit_and_push, default_git
 from devlog.site import rebuild_site
+from devlog.status import record_event
 
 
 def delete_day(
@@ -37,8 +38,9 @@ def delete_day(
         raise RuntimeError(f"Configured repository is not a git checkout: {repo}")
 
     post_path.unlink()
+    status_file = record_event(repo, event="deleted", date=target.isoformat())
     written = rebuild_site(repo, git_run=git_run, branch=cfg.branch)
-    artifacts = [post_path, *written]
+    artifacts = [post_path, status_file, *written]
 
     try:
         commit_and_push(

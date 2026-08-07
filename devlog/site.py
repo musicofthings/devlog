@@ -5,10 +5,11 @@ from __future__ import annotations
 import html
 import json
 import re
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from devlog.gitutil import GitRunner, default_git
+from devlog.status import load_status
 
 _DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.md$")
 
@@ -367,10 +368,31 @@ def _admin_panel_html(github_repo: str, branch: str) -> str:
 """
 
 
+def _friendly_timestamp(iso: str) -> str:
+    try:
+        return datetime.fromisoformat(iso).strftime("%Y-%m-%d %H:%M UTC")
+    except ValueError:
+        return iso
+
+
+def _format_status_line(status: dict) -> str:
+    parts: list[str] = []
+    pub_date = status.get("last_published_date")
+    pub_at = status.get("last_published_at")
+    if pub_date and pub_at:
+        parts.append(f"Last published: {pub_date} ({_friendly_timestamp(pub_at)})")
+    del_date = status.get("last_deleted_date")
+    del_at = status.get("last_deleted_at")
+    if del_date and del_at:
+        parts.append(f"Last deleted: {del_date} ({_friendly_timestamp(del_at)})")
+    return " · ".join(parts)
+
+
 def build_feed_html(
     posts: list[tuple[date, Path, str]],
     github_repo: str | None = None,
     branch: str = "main",
+    status: dict | None = None,
 ) -> str:
     if not posts:
         items = '<li><p class="excerpt">No posts yet.</p></li>'
@@ -394,8 +416,13 @@ def build_feed_html(
         items = "\n".join(chunks)
     admin_html = _admin_panel_html(github_repo, branch) if github_repo else ""
     admin_css = f"<style>{ADMIN_CSS}</style>" if github_repo else ""
+    status_line = _format_status_line(status) if status else ""
+    status_html = (
+        f'<p class="meta status-line">{html.escape(status_line)}</p>' if status_line else ""
+    )
     inner = f"""<h1>Log</h1>
 <p class="meta">Reverse-chronological daily build logs</p>
+{status_html}
 <ul class="feed">
 {items}
 </ul>
@@ -435,9 +462,11 @@ def rebuild_site(
 
     posts = list_posts(posts_dir)
     github_repo = detect_github_repo(repo_path, git_run)
+    status = load_status(repo_path)
     feed_path = log_dir / "index.html"
     feed_path.write_text(
-        build_feed_html(posts, github_repo=github_repo, branch=branch), encoding="utf-8"
+        build_feed_html(posts, github_repo=github_repo, branch=branch, status=status),
+        encoding="utf-8",
     )
     written.append(feed_path)
 
