@@ -4,6 +4,14 @@ name: Delete devlog post
 # workflow_dispatch endpoint, using a personal token scoped to Actions:
 # read/write only. This job's own GITHUB_TOKEN does the actual commit/push,
 # so that personal token never needs repo-contents write access.
+#
+# Deploys Pages itself in this same job (mirroring pages.yml's steps)
+# instead of dispatching pages.yml as a separate workflow run: a prior
+# version did `gh workflow run pages.yml --ref main` here, but that races
+# the just-completed push -- GitHub can resolve `main` to the pre-delete
+# commit for a second or two after the push lands, silently redeploying the
+# stale site. Redeploying from this job's own already-updated working tree
+# makes that race impossible.
 
 on:
   workflow_dispatch:
@@ -14,10 +22,18 @@ on:
 
 permissions:
   contents: write
-  actions: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
   delete:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -46,7 +62,14 @@ jobs:
           GIT_COMMITTER_NAME: devlog-bot
           GIT_COMMITTER_EMAIL: devlog-bot@users.noreply.github.com
 
-      - name: Redeploy Pages
-        run: gh workflow run pages.yml --ref ${{ github.ref_name }}
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload docs artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
