@@ -10,7 +10,7 @@ Turns local AI coding session history into one short, factual, first-person
 
 | Suite | Result |
 |-------|--------|
-| `pytest` | **90 passed** |
+| `pytest` | **91 passed** |
 | Offline evals (`python -m evals.run`) | **8/8 passed** |
 | Live evals (`python -m evals.run --live`) | **8/8 passed** |
 
@@ -103,7 +103,7 @@ Missing roots are skipped (other sources still run).
 
 ```bash
 python -m pytest
-# expected: 90 passed
+# expected: 91 passed
 ```
 
 ## Evals
@@ -141,6 +141,22 @@ Public URLs after deploy:
 - Landing: https://musicofthings.github.io/devlog/
 - Log feed: https://musicofthings.github.io/devlog/log/
 - Day post: https://musicofthings.github.io/devlog/log/YYYY-MM-DD.html
+
+### Troubleshooting: the scheduled task silently stops running
+
+If `devlog init` registers the `DailyDevLogPublish` Windows Scheduled Task, `%LOCALAPPDATA%\devlog\publish.log` should gain a new entry every night. If posts stop appearing and the log stops growing, check whether the task still exists at all:
+
+```powershell
+schtasks /Query /TN DailyDevLogPublish /V /FO LIST
+```
+
+`ERROR: The system cannot find the file specified` means the task was removed — Windows Task Scheduler does not keep a history of *why* by default, so there's usually no trail explaining it. Re-run `devlog init` (with `--schedule` if you're not doing the interactive prompts) to register it again.
+
+`devlog init` also makes a best-effort attempt to turn on Task Scheduler's operational event log, so a future disappearance leaves a diagnosable trail next time. This needs admin elevation, which `devlog init` does not have by default, so it will usually print a note that it couldn't. To enable it yourself, open **PowerShell as Administrator** (a regular PowerShell window is not enough, even one you opened yourself) and run:
+
+```powershell
+wevtutil sl "Microsoft-Windows-TaskScheduler/Operational" /e:true
+```
 
 ## Delete a published post (Phase 4)
 

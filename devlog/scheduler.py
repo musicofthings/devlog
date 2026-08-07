@@ -103,6 +103,26 @@ def register_windows_task(cfg: DevlogConfig, *, config_path: Path | None = None)
     return TASK_NAME
 
 
+def try_enable_task_history() -> bool:
+    """Best-effort: turn on Task Scheduler's operational event log.
+
+    Without this, a scheduled task that silently stops existing (as
+    DailyDevLogPublish once did on the maintainer's machine, cause unknown)
+    leaves no log trail explaining why. Enabling it requires admin
+    elevation, which `devlog init` does not have by default -- this never
+    raises, so callers can fall back to printing manual instructions.
+    """
+    if sys.platform != "win32":
+        return False
+    result = subprocess.run(
+        ["wevtutil", "sl", "Microsoft-Windows-TaskScheduler/Operational", "/e:true"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
 def unregister_windows_task() -> None:
     if sys.platform != "win32" or not shutil.which("schtasks"):
         return

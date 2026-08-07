@@ -1,7 +1,15 @@
+import sys
+
 import pytest
 
 from devlog.config import DevlogConfig
-from devlog.scheduler import build_wrapper_script
+from devlog.scheduler import build_wrapper_script, try_enable_task_history
+
+
+def test_try_enable_task_history_noop_off_windows():
+    if sys.platform == "win32":
+        pytest.skip("only exercises the non-Windows short-circuit")
+    assert try_enable_task_history() is False
 
 
 def test_wrapper_script_rejects_cmd_metacharacters_in_repo_path():

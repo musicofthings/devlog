@@ -14,7 +14,11 @@ from devlog.config import (
     default_repo_path,
     save_config,
 )
-from devlog.scheduler import register_windows_task, unregister_windows_task
+from devlog.scheduler import (
+    register_windows_task,
+    try_enable_task_history,
+    unregister_windows_task,
+)
 
 
 def _prompt(label: str, default: str) -> str:
@@ -143,6 +147,17 @@ def cmd_init(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"[warn] Could not register scheduled task: {exc}")
             return 1
+        if try_enable_task_history():
+            print("Task Scheduler history logging enabled.")
+        else:
+            print(
+                "[note] Could not enable Task Scheduler history logging (needs an "
+                "elevated/Administrator PowerShell -- opening a regular PowerShell "
+                "window is not enough). Without it, if this task ever silently "
+                "stops running, there will be no log explaining why. To enable it "
+                "later, open PowerShell as Administrator and run:\n"
+                '  wevtutil sl "Microsoft-Windows-TaskScheduler/Operational" /e:true'
+            )
     elif args.no_schedule:
         try:
             unregister_windows_task()
