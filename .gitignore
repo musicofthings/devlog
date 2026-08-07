@@ -9,8 +9,10 @@ build/
 .superpowers/
 .devlog-*.md
 
-# Claude Code / context-engineering-kit session artifacts
-.claude/
+# Claude Code / context-engineering-kit session artifacts -- but track
+# .claude/commands/ (shipped slash commands are meant to be committed)
+.claude/*
+!.claude/commands/
 api_docs.md
 session_handover.md
 

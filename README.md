@@ -1,46 +1,12 @@
-# Daily Dev Log — Phase 2
+# Daily Dev Log
 
 Turns local AI coding session history into one short, factual, first-person
-"build log" post per day. Phase 2 ships Claude Code, Codex, and Cursor
-(agent-transcript) source plugins; a default run merges all three into one post.
+"build log" post per day, published to a GitHub Pages site. Reads Claude
+Code, Codex, and Cursor session transcripts and merges them into one post.
 
 **Repo:** https://github.com/musicofthings/devlog
 
-## Results (verified locally)
-
-| Suite | Result |
-|-------|--------|
-| `pytest` | **106 passed** |
-| Offline evals (`python -m evals.run`) | **8/8 passed** |
-| Live evals (`python -m evals.run --live`) | **8/8 passed** |
-
-Token-efficient Claude path: compact, redacted digests with `src=` tags,
-empty-day API skip, explicit external-API consent, and a 5-sentence output clamp.
-
-## Layout
-
-```
-devlog/
-  cli.py              # argparse entrypoint (per-source roots)
-  delete_cmd.py       # devlog delete: remove a published post + push the removal
-  digest.py           # calendar-day slicing (local timezone) + compact digests
-  gitutil.py          # shared git add/commit/push plumbing (publish + delete)
-  models.py           # RawSession, SessionDigest
-  status.py           # .devlog-status.json: last publish/delete, shown on the feed page
-  summarize.py        # digest → post (Claude API or template fallback)
-  sources/
-    base.py           # plugin registry
-    claude_code.py    # ~/.claude projects JSONL
-    codex.py          # ~/.codex sessions/YYYY/MM/DD/rollout-*.jsonl
-    cursor.py         # ~/.cursor/projects/*/agent-transcripts/**/*.jsonl
-evals/                # acceptance-style offline/live eval harness
-main.py               # thin wrapper → devlog.cli
-sample_data/          # claude_code, codex, cursor fixtures
-tests/                # pytest suite
-docs/                 # GitHub Pages landing + superpowers specs/plans
-```
-
-## Setup
+## Install
 
 Requires Python 3.11+.
 
@@ -48,11 +14,12 @@ Requires Python 3.11+.
 pip install -e ".[dev]"
 ```
 
-This also installs a `devlog` console command (`devlog run`, `devlog init`,
-`devlog publish`, `devlog delete`) — everything below works with either `devlog` or
-`python main.py` interchangeably; `python main.py` needs no install step.
+This installs a `devlog` console command (`devlog run`, `devlog init`,
+`devlog publish`, `devlog delete`) — everything below works with either
+`devlog` or `python main.py` interchangeably; `python main.py` needs no
+install step.
 
-## Run
+## Use
 
 Print today's post without writing a file (defaults: all three sources):
 
@@ -100,24 +67,7 @@ to replace an existing post unless `--force` is supplied.
 
 Missing roots are skipped (other sources still run).
 
-## Tests
-
-```bash
-python -m pytest
-# expected: 106 passed
-```
-
-## Evals
-
-```bash
-python -m evals.run          # expected: 8/8
-python -m evals.run --json
-python -m evals.run --live   # requires ANTHROPIC_API_KEY
-```
-
-Also covered by pytest via `tests/test_evals.py`.
-
-## Publish (Phase 3)
+## Publish automatically
 
 Initialize config (writes `%USERPROFILE%\.config\devlog\config.toml`):
 
@@ -155,8 +105,6 @@ schtasks /Query /TN DailyDevLogPublish /V /FO LIST
 
 `ERROR: The system cannot find the file specified` means the task was removed — Windows Task Scheduler does not keep a history of *why* by default, so there's usually no trail explaining it. Re-run `devlog init` (with `--schedule` if you're not doing the interactive prompts) to register it again.
 
-One confirmed cause, already fixed: `pytest` used to call the real `unregister_windows_task()` (via `cmd_init`'s `--no-schedule` path in `test_init_defaults`) with no test seam, so simply running the test suite on a machine that had the task registered would silently delete it. The test now mocks that call. If you're developing devlog itself, keep an eye out for any new test that exercises `cmd_init`, `register_windows_task`, or `unregister_windows_task` without mocking them — those are the only functions in this codebase allowed to touch the real Windows Task Scheduler.
-
 `devlog init` also makes a best-effort attempt to turn on Task Scheduler's operational event log, so a future disappearance leaves a diagnosable trail next time. This needs admin elevation, which `devlog init` does not have by default, so it will usually print a note that it couldn't. To enable it yourself, open **PowerShell as Administrator** (a regular PowerShell window is not enough, even one you opened yourself) and run:
 
 ```powershell
@@ -165,7 +113,7 @@ wevtutil sl "Microsoft-Windows-TaskScheduler/Operational" /e:true
 
 ### Troubleshooting: the `devlog` command stops working entirely
 
-`devlog init`'s scheduling step now verifies the exact Python that will run the nightly task can actually `import devlog` *before* registering anything, so a broken install is caught immediately with a clear error instead of failing silently at 06:30. This specifically catches a stale editable install — e.g. running `pip install -e .` from a temporary checkout or worktree and later deleting it, which orphans the install and breaks `devlog` everywhere, not just the scheduled task. If you ever see `ModuleNotFoundError: No module named 'devlog'` from the `devlog` command itself, check where the editable install actually points:
+`devlog init`'s scheduling step verifies the exact Python that will run the nightly task can actually `import devlog` *before* registering anything, so a broken install is caught immediately with a clear error instead of failing silently at 06:30. This specifically catches a stale editable install — e.g. running `pip install -e .` from a temporary checkout and later deleting it, which orphans the install and breaks `devlog` everywhere, not just the scheduled task. If you ever see `ModuleNotFoundError: No module named 'devlog'` from the `devlog` command itself, check where the editable install actually points:
 
 ```bash
 pip show devlog   # look at "Editable project location"
@@ -173,7 +121,7 @@ pip show devlog   # look at "Editable project location"
 
 If it points somewhere that no longer exists, reinstall from the real repo checkout: `pip install -e ".[dev]"`.
 
-## Delete a published post (Phase 4)
+## Delete a published post
 
 `publish_mode = auto` means posts go public with no review, so there's a way to take one back down without touching the machine that owns the repo:
 
@@ -196,16 +144,15 @@ The most common cause, confirmed in practice: when creating the fine-grained tok
 
 The feed page shows a small status line — "Last published: 2026-08-06 (2026-08-07 06:30 UTC) · Last deleted: 2026-07-19 (2026-08-07 07:03 UTC)" — sourced from a small `.devlog-status.json` file at the repo root that both `devlog publish` and `devlog delete` update as part of their normal commit. It only appears once at least one publish or delete has actually happened; there's nothing to show on a brand-new site.
 
-## Manual acceptance
+## Slash commands for AI coding assistants
 
-1. `python main.py --date 2026-07-20 --dry-run --verbose` (or another day with real activity).
-2. Confirm Codex paths use real `cwd` and Cursor paths decode from `projects/` folder names.
-3. Confirm a multi-tool day produces one merged post with distinct sources in digests (`--verbose`).
-4. `devlog init --defaults` then `devlog publish --date <fixture-day> --dry-run`.
+If you use Claude Code, Codex, Cursor, or Grok Build to work in a repo with devlog installed, you can drive it with `/devlog-init`, `/devlog-publish`, `/devlog-delete`, and `/devlog-status` instead of typing the CLI commands yourself. Each command just tells the assistant which `devlog` commands to run and how to handle the output (e.g. `/devlog-delete` always confirms with you before running the real, non-dry-run delete).
 
-## Next
+| Tool | Where the commands live | Setup needed |
+|------|--------------------------|--------------|
+| **Claude Code** | `.claude/commands/*.md` | None — auto-discovered from the repo. |
+| **Cursor** | `.cursor/skills/devlog-*/SKILL.md` | None — auto-discovered from the repo. |
+| **Grok Build** | `.grok/skills/devlog-*/SKILL.md` | None — auto-discovered from the repo. |
+| **Codex CLI** | `.codex/prompts/*.md` (shipped in-repo) | Codex only reads prompts from `~/.codex/prompts/`, not the repo — copy or symlink them: `cp .codex/prompts/*.md ~/.codex/prompts/` |
 
-- Recruiter-facing portfolio polish and custom domain.
-- Optional Cursor SQLite / Composer history (deferred; agent transcripts only for now).
-
-See `PRD_TRD.md` and `docs/superpowers/` for full spec and design.
+Codex's custom-prompts mechanism is marked deprecated in OpenAI's own docs (in favor of a "Skills" system) but still works as documented at the time this was written; if it stops working, check `.codex/prompts/*.md` here against current Codex CLI docs.
