@@ -5,13 +5,10 @@ name: Delete devlog post
 # read/write only. This job's own GITHUB_TOKEN does the actual commit/push,
 # so that personal token never needs repo-contents write access.
 #
-# Deploys Pages itself in this same job (mirroring pages.yml's steps)
-# instead of dispatching pages.yml as a separate workflow run: a prior
-# version did `gh workflow run pages.yml --ref main` here, but that races
-# the just-completed push -- GitHub can resolve `main` to the pre-delete
-# commit for a second or two after the push lands, silently redeploying the
-# stale site. Redeploying from this job's own already-updated working tree
-# makes that race impossible.
+# After a successful push, pages.yml deploys from the push event's commit SHA
+# (path filter matches posts/** and docs/**). This workflow intentionally does
+# NOT deploy Pages itself — sharing the `pages` concurrency group with
+# cancel-in-progress caused racing dual deploys that could cancel each other.
 
 on:
   workflow_dispatch:
@@ -22,24 +19,25 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
 
 jobs:
   delete:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Validate date
+        env:
+          DELETE_DATE: ${{ github.event.inputs.date }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$DELETE_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "Invalid date input: $DELETE_DATE (expected YYYY-MM-DD)"
+            exit 1
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -61,15 +59,3 @@ jobs:
           GIT_AUTHOR_EMAIL: devlog-bot@users.noreply.github.com
           GIT_COMMITTER_NAME: devlog-bot
           GIT_COMMITTER_EMAIL: devlog-bot@users.noreply.github.com
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload docs artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4

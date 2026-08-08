@@ -7,9 +7,42 @@ from datetime import date
 from pathlib import Path
 
 from devlog.config import DevlogConfig, default_config_path, load_config
-from devlog.gitutil import GitRunner, commit_and_push, default_git
+from devlog.gitutil import GitPublishError, GitRunner, commit_and_push, default_git, git_paths
 from devlog.site import rebuild_site
 from devlog.status import record_event
+
+
+def _restore_failed_delete(
+    repo: Path,
+    post_path: Path,
+    body: str,
+    artifacts: list[Path],
+    *,
+    committed: bool,
+    git_run: GitRunner,
+    branch: str,
+) -> str:
+    """Undo a failed delete. Returns a short note for the error message."""
+    if committed:
+        reset = git_run(["git", "reset", "--hard", "HEAD~1"], repo)
+        if reset.returncode != 0:
+            detail = (reset.stderr or reset.stdout or "git reset failed").strip()
+            return (
+                "delete commit is local but unpushed; run "
+                f"`git reset --hard HEAD~1` to restore (auto-reset failed: {detail})"
+            )
+        return "local delete commit was reset; post restored"
+
+    post_path.write_text(body, encoding="utf-8")
+    try:
+        others = [p for p in artifacts if p != post_path]
+        paths = git_paths(repo, others) if others else []
+        if paths:
+            git_run(["git", "checkout", "HEAD", "--", *paths], repo)
+    except RuntimeError:
+        pass
+    rebuild_site(repo, git_run=git_run, branch=branch)
+    return "post file and site were restored in the working tree"
 
 
 def delete_day(
@@ -37,6 +70,7 @@ def delete_day(
     if not (repo / ".git").exists():
         raise RuntimeError(f"Configured repository is not a git checkout: {repo}")
 
+    body = post_path.read_text(encoding="utf-8")
     post_path.unlink()
     status_file = record_event(repo, event="deleted", date=target.isoformat())
     written = rebuild_site(repo, git_run=git_run, branch=cfg.branch)
@@ -53,11 +87,17 @@ def delete_day(
             require_changes=True,
         )
     except RuntimeError as exc:
-        relative = post_path.relative_to(repo).as_posix()
-        raise RuntimeError(
-            f"{exc} (the post file at {post_path} was already removed from the "
-            f"working tree; run `git checkout -- {relative}` to restore it if needed)"
-        ) from exc
+        committed = isinstance(exc, GitPublishError) and exc.committed
+        note = _restore_failed_delete(
+            repo,
+            post_path,
+            body,
+            artifacts,
+            committed=committed,
+            git_run=git_run,
+            branch=cfg.branch,
+        )
+        raise RuntimeError(f"{exc} ({note})") from exc
 
     return {
         "status": "deleted",

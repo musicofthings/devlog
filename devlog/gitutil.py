@@ -9,6 +9,18 @@ from pathlib import Path
 GitRunner = Callable[[list[str], Path], subprocess.CompletedProcess[str]]
 
 
+class GitPublishError(RuntimeError):
+    """Raised when commit/pull/push fails after staging work.
+
+    ``committed`` is True when a local commit already exists (so recovery
+    needs ``git reset``, not ``git checkout`` of a working-tree path).
+    """
+
+    def __init__(self, message: str, *, committed: bool = False) -> None:
+        super().__init__(message)
+        self.committed = committed
+
+
 def default_git(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         cmd,
@@ -78,7 +90,11 @@ def commit_and_push(
     git_run: GitRunner,
     require_changes: bool = False,
 ) -> bool:
-    """Stage, commit, rebase onto remote, and push. Returns whether a commit was made."""
+    """Stage, commit, rebase onto remote, and push. Returns whether a commit was made.
+
+    Raises ``GitPublishError`` with ``committed=True`` if pull/push fails after
+    a local commit was created. Pre-commit failures raise plain ``RuntimeError``.
+    """
     if not add_and_commit(repo, message, artifacts, git_run, require_changes=require_changes):
         return False
 
@@ -90,9 +106,15 @@ def commit_and_push(
         # mid-rebase and every subsequent scheduled run fails too, until a
         # human runs `git rebase --abort` by hand.
         git_run(["git", "rebase", "--abort"], repo)
-        raise RuntimeError(pull.stderr or pull.stdout or "git pull --rebase failed")
+        raise GitPublishError(
+            pull.stderr or pull.stdout or "git pull --rebase failed",
+            committed=True,
+        )
 
     push = git_run(["git", "push", remote, branch], repo)
     if push.returncode != 0:
-        raise RuntimeError(push.stderr or push.stdout or "git push failed")
+        raise GitPublishError(
+            push.stderr or push.stdout or "git push failed",
+            committed=True,
+        )
     return True

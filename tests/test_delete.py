@@ -80,7 +80,40 @@ def test_delete_raises_if_nothing_to_commit(tmp_path: Path):
 
     with pytest.raises(RuntimeError, match="No generated changes") as excinfo:
         delete_day(cfg, date(2026, 7, 20), git_run=fake_git)
-    assert "already removed from the working tree" in str(excinfo.value)
+    assert "restored in the working tree" in str(excinfo.value)
+    assert (repo / "posts" / "2026-07-20.md").exists()
+    assert "Built the parser." in (repo / "posts" / "2026-07-20.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_delete_resets_local_commit_when_push_fails(tmp_path: Path):
+    repo = _repo_with_post(tmp_path, date(2026, 7, 20), "Built the parser.")
+    cfg = DevlogConfig(repo_path=str(repo).replace("\\", "/"), remote="origin", branch="main")
+    calls: list[list[str]] = []
+
+    def fake_git(cmd: list[str], cwd: Path):
+        calls.append(cmd)
+        from subprocess import CompletedProcess
+
+        if cmd[:2] == ["git", "status"]:
+            return CompletedProcess(cmd, 0, stdout="D posts/2026-07-20.md\n", stderr="")
+        if cmd[:2] == ["git", "push"]:
+            return CompletedProcess(cmd, 1, stdout="", stderr="remote rejected")
+        if cmd[:3] == ["git", "reset", "--hard"]:
+            # Simulate restoring the post that HEAD~1 still has.
+            (repo / "posts" / "2026-07-20.md").write_text(
+                "Built the parser.\n", encoding="utf-8"
+            )
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with pytest.raises(RuntimeError, match="remote rejected") as excinfo:
+        delete_day(cfg, date(2026, 7, 20), git_run=fake_git)
+
+    assert "local delete commit was reset" in str(excinfo.value)
+    assert any(c[:3] == ["git", "reset", "--hard"] and c[-1] == "HEAD~1" for c in calls)
+    assert (repo / "posts" / "2026-07-20.md").exists()
 
 
 def test_cmd_delete_missing_post_exits_2(tmp_path: Path, capsys):

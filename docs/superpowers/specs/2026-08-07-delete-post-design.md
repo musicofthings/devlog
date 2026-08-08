@@ -36,14 +36,14 @@ docs/log/index.html (feed page)
         ↓
 .github/workflows/delete-post.yml  (workflow_dispatch, input: date)
   → actions/checkout, setup-python, pip install -e .
-  → devlog delete --date <input> --force
+  → devlog delete --date <input>
         ↓
 devlog delete (devlog/delete_cmd.py)
   → unlink posts/YYYY-MM-DD.md
   → rebuild_site(repo)   [already prunes stale docs/log/YYYY-MM-DD.html + regenerates feed]
   → git add / commit / push   (same tail as publish.py's auto-publish flow)
         ↓
-main branch updated → GitHub Pages redeploys (existing pages.yml, unchanged)
+main branch updated → GitHub Pages redeploys via push-triggered pages.yml
 ```
 
 `owner/repo` is not stored in config. `rebuild_site()` derives it once per build from `git remote get-url origin` and bakes it into the generated feed page as a small inline constant, so forks need zero configuration for this feature beyond having their own `origin` set correctly (which every git clone already requires).
@@ -53,14 +53,14 @@ main branch updated → GitHub Pages redeploys (existing pages.yml, unchanged)
 ## 3. `devlog delete` CLI
 
 ```
-devlog delete --date YYYY-MM-DD [--config PATH] [--force] [--dry-run]
+devlog delete --date YYYY-MM-DD [--config PATH] [--dry-run]
 ```
 
 | Behavior | Detail |
 |---|---|
-| Missing post | If `posts/YYYY-MM-DD.md` doesn't exist, exit 2 with a clear message. `--force` does not change this — there is nothing to force. |
+| Missing post | If `posts/YYYY-MM-DD.md` doesn't exist, exit 2 with a clear message. |
 | Dry run | Prints what would be removed; does not touch files or git. |
-| Delete | Unlinks the post file, calls `rebuild_site(repo)` (existing function — already removes the now-stale `docs/log/YYYY-MM-DD.html` and rewrites `docs/log/index.html`), then stages and commits (`git add -- posts/YYYY-MM-DD.md docs/log/...`, reusing `_git_add_and_commit` from `publish.py`) and pushes via the same pull-rebase-push sequence `_git_publish_auto` already uses. No new git logic is written — delete is "generate nothing, then run the existing publish tail." |
+| Delete | Unlinks the post file, calls `rebuild_site(repo)` (existing function — already removes the now-stale `docs/log/YYYY-MM-DD.html` and rewrites `docs/log/index.html`), then stages and commits via shared `gitutil.commit_and_push`. If commit succeeds but pull/push fails, the local delete commit is auto-reset (`git reset --hard HEAD~1`). If failure is pre-commit, the post body and site HTML are restored in the working tree. |
 | Publish mode | Reads `remote`/`branch` from config the same way `publish` does. Runs regardless of `publish_mode` (manual/auto/pr) — deleting isn't gated by the same review-before-publish concern that motivated `publish_mode`, since the whole point is taking something back down quickly. |
 
 Implementation reuses, not duplicates: `_git_add_and_commit` and the commit→pull-rebase→push sequence move to shared functions in `publish.py` (or are called from there) so `delete_cmd.py` has no independent git implementation.
@@ -86,19 +86,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate date
+        env:
+          DELETE_DATE: ${{ github.event.inputs.date }}
+        run: |
+          if [[ ! "$DELETE_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "Invalid date input: $DELETE_DATE"; exit 1
+          fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: pip install -e .
-      - run: devlog delete --date "${{ github.event.inputs.date }}"
+      - run: devlog delete --date "$DELETE_DATE"
         env:
+          DELETE_DATE: ${{ github.event.inputs.date }}
           GIT_AUTHOR_NAME: devlog-bot
           GIT_AUTHOR_EMAIL: devlog-bot@users.noreply.github.com
           GIT_COMMITTER_NAME: devlog-bot
           GIT_COMMITTER_EMAIL: devlog-bot@users.noreply.github.com
 ```
 
-The run's own `GITHUB_TOKEN` (scoped by `permissions: contents: write`) does the push via the checkout action's persisted credentials — the personal token from the browser never touches repository contents directly, only triggers this workflow.
+The run's own `GITHUB_TOKEN` (scoped by `permissions: contents: write`) does the push via the checkout action's persisted credentials — the personal token from the browser never touches repository contents directly, only triggers this workflow. Pages redeploy is left to push-triggered `pages.yml` (same concurrency group is not shared with this workflow, so deploys are not cancelled by delete).
 
 ---
 
