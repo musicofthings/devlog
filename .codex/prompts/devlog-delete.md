@@ -1,6 +1,7 @@
 ---
-description: Delete a previously published devlog post (with confirmation)
-argument-hint: "<YYYY-MM-DD>"
+description: "DEPRECATED — use Codex skill .agents/skills/devlog-delete instead"
 ---
 
-Delete a devlog post for $ARGUMENTS (ask for the date if not given, format YYYY-MM-DD). First run `devlog delete --date <date> --dry-run` and show the result so the post's existence is confirmed. Then explicitly ask for confirmation before running the real `devlog delete --date <date>` (no `--dry-run`) -- it's a real commit that removes the post from the live site, recoverable only via git history, not the live site. Never run the real delete without an explicit yes from the user.
+Custom Codex prompts (`/prompts:…`) were removed in Codex CLI 0.117+.
+Use the repo skill at `.agents/skills/devlog-delete/SKILL.md` (or ask Codex
+to run the `devlog-delete` skill).

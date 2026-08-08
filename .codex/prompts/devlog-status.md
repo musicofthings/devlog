@@ -1,10 +1,7 @@
 ---
-description: Check devlog's publish/delete status and scheduled-task health
+description: "DEPRECATED — use Codex skill .agents/skills/devlog-status instead"
 ---
 
-Give a quick devlog status check:
-1. Read `.devlog-status.json` at the repo root if present, and report the last published/deleted date and time.
-2. Run `devlog publish --dry-run` to preview what the next publish would contain, without writing or pushing anything.
-3. On Windows, check whether the nightly scheduled task is registered: `schtasks /Query /TN DailyDevLogPublish /V /FO LIST`. If it's missing, say so and offer to run `devlog init` to re-register it.
-
-Summarize all of this concisely.
+Custom Codex prompts (`/prompts:…`) were removed in Codex CLI 0.117+.
+Use the repo skill at `.agents/skills/devlog-status/SKILL.md` (or ask Codex
+to run the `devlog-status` skill).

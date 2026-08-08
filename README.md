@@ -152,7 +152,7 @@ If you use Claude Code, Codex, Cursor, or Grok Build to work in a repo with devl
 |------|--------------------------|--------------|
 | **Claude Code** | `.claude/commands/*.md` | None — auto-discovered from the repo. |
 | **Cursor** | `.cursor/skills/devlog-*/SKILL.md` | None — auto-discovered from the repo. |
-| **Grok Build** | `.grok/skills/devlog-*/SKILL.md` | None — auto-discovered from the repo. |
-| **Codex CLI** | `.codex/prompts/*.md` (shipped in-repo) | Codex only reads prompts from `~/.codex/prompts/`, not the repo — copy or symlink them: `cp .codex/prompts/*.md ~/.codex/prompts/` |
+| **Grok Build** | `.grok/skills/devlog-*/SKILL.md` | None — auto-discovered from the repo (`user-invocable`). |
+| **Codex CLI** | `.agents/skills/devlog-*/SKILL.md` | None — auto-discovered from the repo. |
 
-Codex's custom-prompts mechanism is marked deprecated in OpenAI's own docs (in favor of a "Skills" system) but still works as documented at the time this was written; if it stops working, check `.codex/prompts/*.md` here against current Codex CLI docs.
+Codex CLI 0.117+ removed custom prompts (`~/.codex/prompts` / `/prompts:…`). The in-repo `.codex/prompts/*.md` files are kept only as legacy references; live Codex support is the `.agents/skills/` copies. If Codex warns that the skills context budget was exceeded, invoke a skill by path (e.g. “use `.agents/skills/devlog-status/SKILL.md`”) or trim unused global skills under `~/.agents/skills`.

@@ -1,5 +1,7 @@
 ---
-description: Set up or update devlog configuration (sources, publish mode, schedule)
+description: "DEPRECATED — use Codex skill .agents/skills/devlog-init instead"
 ---
 
-Run `devlog init` in this repository to set up or update its configuration -- it prompts for source roots, publish mode, and optionally registers the nightly scheduled task. Show the output and summarize what got configured, especially `publish_mode` (since `auto` means posts publish with no review, `manual`/`pr` require a human step).
+Custom Codex prompts (`/prompts:…`) were removed in Codex CLI 0.117+.
+Use the repo skill at `.agents/skills/devlog-init/SKILL.md` (or ask Codex
+to run the `devlog-init` skill).
