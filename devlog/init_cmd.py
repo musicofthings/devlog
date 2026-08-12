@@ -82,8 +82,10 @@ def pages_checklist() -> str:
         "\nPrivacy note: published posts can include project paths AND the text of\n"
         "your prompts to the AI tools. With publish_mode=auto they go public with\n"
         "no review — keep 'manual' or 'pr' unless you accept that.\n"
-        "\nUse `devlog delete --date YYYY-MM-DD` to retract a post -- it's a real\n"
-        "git removal, recoverable only via git history, not a soft-hide.\n"
+        "\nUse `devlog hide --date YYYY-MM-DD` to soft-hide a post from the public\n"
+        "feed (markdown stays in posts/). Use `devlog delete` for a real git removal.\n"
+        "With publish_mode=review, nightly writes files locally; confirm with\n"
+        "`devlog publish --confirm --date YYYY-MM-DD` when ready to push.\n"
     )
 
 

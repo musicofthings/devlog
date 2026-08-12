@@ -101,13 +101,13 @@ h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 0 0 0.75rem; }
 <p class="meta">Reverse-chronological daily build logs</p>
 <p class="meta status-line">Last published: 2026-08-10 (2026-08-11 01:00 UTC) · Last deleted: 2026-07-20 (2026-08-07 17:15 UTC)</p>
 <ul class="feed">
-<li><a href="2026-08-10.html">2026-08-10</a><button type="button" class="delete-btn" data-date="2026-08-10">Delete</button><p class="excerpt">Today I logged 12 active min across vitreous. I worked on vitreous: save session. Tools: Edit (13x), Bash (8x), Write (3x).</p></li>
-<li><a href="2026-08-09.html">2026-08-09</a><button type="button" class="delete-btn" data-date="2026-08-09">Delete</button><p class="excerpt">Today I logged 205 active min across vitreous. I worked on vitreous: git sync and code review full repo. Tools: Bash (247x), Edit (99x), Write (47x).</p></li>
-<li><a href="2026-08-08.html">2026-08-08</a><button type="button" class="delete-btn" data-date="2026-08-08">Delete</button><p class="excerpt">Today I logged 40 active min across devlog. I worked on devlog: &lt;mcp_meta_tools&gt; You have access to MCP (Model Context Protocol) tools through `GetMcpTools` an…</p></li>
-<li><a href="2026-08-07.html">2026-08-07</a><button type="button" class="delete-btn" data-date="2026-08-07">Delete</button><p class="excerpt">Today I logged 256 active min across delete-post, devlog. I worked on devlog: git sync and run full repo review; delete-post: Review this change for security v…</p></li>
-<li><a href="2026-08-06.html">2026-08-06</a><button type="button" class="delete-btn" data-date="2026-08-06">Delete</button><p class="excerpt">Today I logged 9 active min across shibi. I worked on shibi: remove all mcp servers that need authentication, i am not using it. Tools: Bash (16x), Skill (1x),…</p></li>
-<li><a href="2026-07-22.html">2026-07-22</a><button type="button" class="delete-btn" data-date="2026-07-22">Delete</button><p class="excerpt">Hardened the publish CLI and rebuilt the GitHub Pages log feed from posts.</p></li>
-<li><a href="2026-07-21.html">2026-07-21</a><button type="button" class="delete-btn" data-date="2026-07-21">Delete</button><p class="excerpt">Wired Cursor agent-transcript ingestion and confirmed multi-source digests merge cleanly.</p></li>
+<li><a href="2026-08-10.html">2026-08-10</a><button type="button" class="hide-btn" data-date="2026-08-10">Hide</button><button type="button" class="delete-btn" data-date="2026-08-10">Delete</button><p class="excerpt">Today I logged 12 active min across vitreous. I worked on vitreous: save session. Tools: Edit (13x), Bash (8x), Write (3x).</p></li>
+<li><a href="2026-08-09.html">2026-08-09</a><button type="button" class="hide-btn" data-date="2026-08-09">Hide</button><button type="button" class="delete-btn" data-date="2026-08-09">Delete</button><p class="excerpt">Today I logged 205 active min across vitreous. I worked on vitreous: git sync and code review full repo. Tools: Bash (247x), Edit (99x), Write (47x).</p></li>
+<li><a href="2026-08-08.html">2026-08-08</a><button type="button" class="hide-btn" data-date="2026-08-08">Hide</button><button type="button" class="delete-btn" data-date="2026-08-08">Delete</button><p class="excerpt">Today I logged 40 active min across devlog. I worked on devlog: &lt;mcp_meta_tools&gt; You have access to MCP (Model Context Protocol) tools through `GetMcpTools` an…</p></li>
+<li><a href="2026-08-07.html">2026-08-07</a><button type="button" class="hide-btn" data-date="2026-08-07">Hide</button><button type="button" class="delete-btn" data-date="2026-08-07">Delete</button><p class="excerpt">Today I logged 256 active min across delete-post, devlog. I worked on devlog: git sync and run full repo review; delete-post: Review this change for security v…</p></li>
+<li><a href="2026-08-06.html">2026-08-06</a><button type="button" class="hide-btn" data-date="2026-08-06">Hide</button><button type="button" class="delete-btn" data-date="2026-08-06">Delete</button><p class="excerpt">Today I logged 9 active min across shibi. I worked on shibi: remove all mcp servers that need authentication, i am not using it. Tools: Bash (16x), Skill (1x),…</p></li>
+<li><a href="2026-07-22.html">2026-07-22</a><button type="button" class="hide-btn" data-date="2026-07-22">Hide</button><button type="button" class="delete-btn" data-date="2026-07-22">Delete</button><p class="excerpt">Hardened the publish CLI and rebuilt the GitHub Pages log feed from posts.</p></li>
+<li><a href="2026-07-21.html">2026-07-21</a><button type="button" class="hide-btn" data-date="2026-07-21">Hide</button><button type="button" class="delete-btn" data-date="2026-07-21">Delete</button><p class="excerpt">Wired Cursor agent-transcript ingestion and confirmed multi-source digests merge cleanly.</p></li>
 </ul>
 
 <details class="admin" id="devlog-admin-details">
@@ -131,6 +131,7 @@ h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 0 0 0.75rem; }
     <button type="button" id="devlog-token-save">Save token</button>
     <button type="button" id="devlog-token-clear">Clear token</button>
   </div>
+  <p class="status" id="devlog-hidden-list">No soft-hidden posts.</p>
   <p class="status" id="devlog-admin-status"></p>
 </details>
 <script>
@@ -141,6 +142,8 @@ h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 0 0 0.75rem; }
   var STORAGE_KEY = "devlog-admin-token";
   var statusEl = document.getElementById("devlog-admin-status");
   var detailsEl = document.getElementById("devlog-admin-details");
+  var POLL_MS = 4000;
+  var POLL_MAX = 45;
 
   function setStatus(msg) {
     if (statusEl) statusEl.textContent = msg;
@@ -185,47 +188,149 @@ h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 0 0 0.75rem; }
     });
   }
 
+  function authHeaders(token) {
+    return {
+      "Authorization": "token " + token,
+      "Accept": "application/vnd.github+json",
+      "Content-Type": "application/json"
+    };
+  }
+
+  function pollWorkflowRun(token, actionLabel, dispatchedAt) {
+    var attempts = 0;
+    function tick() {
+      attempts += 1;
+      fetch(
+        "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW +
+          "/runs?event=workflow_dispatch&per_page=5",
+        { headers: authHeaders(token) }
+      ).then(function (resp) {
+        if (!resp.ok) {
+          setStatus(
+            actionLabel + " dispatched; could not poll run status (" + resp.status +
+            "). Check the Actions tab."
+          );
+          return null;
+        }
+        return resp.json();
+      }).then(function (data) {
+        if (!data) return;
+        var runs = data.workflow_runs || [];
+        var run = null;
+        for (var i = 0; i < runs.length; i++) {
+          var created = Date.parse(runs[i].created_at);
+          if (!isNaN(created) && created + 5000 >= dispatchedAt) {
+            run = runs[i];
+            break;
+          }
+        }
+        if (!run) {
+          if (attempts >= POLL_MAX) {
+            setStatus(
+              actionLabel + " dispatched; run not found yet. Check the Actions tab."
+            );
+            return;
+          }
+          setStatus(actionLabel + " dispatched; waiting for Actions run...");
+          setTimeout(tick, POLL_MS);
+          return;
+        }
+        if (run.status !== "completed") {
+          setStatus(
+            actionLabel + " run " + run.status +
+            (run.conclusion ? " (" + run.conclusion + ")" : "") +
+            "... refresh when Pages finishes."
+          );
+          if (attempts >= POLL_MAX) return;
+          setTimeout(tick, POLL_MS);
+          return;
+        }
+        setStatus(
+          actionLabel + " finished: " + (run.conclusion || "completed") +
+          ". Refresh in a few seconds for Pages."
+        );
+      }).catch(function (err) {
+        setStatus(actionLabel + " dispatched; poll failed: " + err);
+      });
+    }
+    setTimeout(tick, 1500);
+  }
+
+  function dispatchAction(action, day, confirmMsg, label) {
+    if (!confirm(confirmMsg)) {
+      return;
+    }
+    var token = getToken();
+    if (!token) {
+      setStatus("Save a token first.");
+      return;
+    }
+    var dispatchedAt = Date.now();
+    setStatus("Requesting " + label + " of " + day + "...");
+    fetch(
+      "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW + "/dispatches",
+      {
+        method: "POST",
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          ref: BRANCH,
+          inputs: { date: day, action: action }
+        })
+      }
+    ).then(function (resp) {
+      if (resp.status === 204) {
+        setStatus(label + " requested for " + day + " -- watching Actions...");
+        pollWorkflowRun(token, label, dispatchedAt);
+      } else if (resp.status === 403) {
+        setStatus(
+          label + " request failed (403): token can't trigger this workflow. " +
+          "Check the token's Repository access is 'Only select repositories' " +
+          "(not 'Public Repositories (read-only)', which silently forces " +
+          "read-only) and that Actions permission is 'Read and write'."
+        );
+      } else {
+        resp.text().then(function (text) {
+          setStatus(label + " request failed (" + resp.status + "): " + text);
+        });
+      }
+    }).catch(function (err) {
+      setStatus(label + " request failed: " + err);
+    });
+  }
+
   document.querySelectorAll(".delete-btn").forEach(function (btn) {
     btn.addEventListener("click", function () {
       var day = btn.getAttribute("data-date");
-      if (!confirm("Delete the " + day + " post? This pushes a real commit removing it.")) {
-        return;
-      }
-      var token = getToken();
-      if (!token) {
-        setStatus("Save a token first.");
-        return;
-      }
-      setStatus("Requesting delete of " + day + "...");
-      fetch(
-        "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW + "/dispatches",
-        {
-          method: "POST",
-          headers: {
-            "Authorization": "token " + token,
-            "Accept": "application/vnd.github+json",
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ ref: BRANCH, inputs: { date: day } })
-        }
-      ).then(function (resp) {
-        if (resp.status === 204) {
-          setStatus("Delete requested for " + day + " -- refresh in about 30 seconds.");
-        } else if (resp.status === 403) {
-          setStatus(
-            "Delete request failed (403): token can't trigger this workflow. " +
-            "Check the token's Repository access is 'Only select repositories' " +
-            "(not 'Public Repositories (read-only)', which silently forces " +
-            "read-only) and that Actions permission is 'Read and write'."
-          );
-        } else {
-          resp.text().then(function (text) {
-            setStatus("Delete request failed (" + resp.status + "): " + text);
-          });
-        }
-      }).catch(function (err) {
-        setStatus("Delete request failed: " + err);
-      });
+      dispatchAction(
+        "delete",
+        day,
+        "Delete the " + day + " post? This pushes a real commit removing it.",
+        "Delete"
+      );
+    });
+  });
+
+  document.querySelectorAll(".hide-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var day = btn.getAttribute("data-date");
+      dispatchAction(
+        "hide",
+        day,
+        "Hide the " + day + " post from the public feed? Markdown stays in the repo.",
+        "Hide"
+      );
+    });
+  });
+
+  document.querySelectorAll(".unhide-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var day = btn.getAttribute("data-date");
+      dispatchAction(
+        "unhide",
+        day,
+        "Unhide the " + day + " post back onto the public feed?",
+        "Unhide"
+      );
     });
   });
 })();
@@ -264,11 +369,24 @@ h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 0 0 0.75rem; }
   color: var(--mist);
   margin-top: 0.5rem;
 }
-.feed .delete-btn {
+.feed .delete-btn,
+.feed .hide-btn,
+.admin .unhide-btn {
   margin-left: 0.75rem;
   font-size: 0.78rem;
   font-family: "IBM Plex Mono", monospace;
   cursor: pointer;
+}
+.admin .hidden-list {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.85rem;
+}
+.admin .hidden-list li {
+  padding: 0.35rem 0;
+  border-top: 1px dashed var(--line);
 }
 </style>
 

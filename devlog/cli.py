@@ -142,6 +142,14 @@ def main(argv: list[str] | None = None) -> int:
         from devlog.delete_cmd import cmd_delete
 
         return cmd_delete(argv[1:])
+    if argv and argv[0] == "hide":
+        from devlog.hide_cmd import cmd_hide
+
+        return cmd_hide(argv[1:])
+    if argv and argv[0] == "unhide":
+        from devlog.hide_cmd import cmd_unhide
+
+        return cmd_unhide(argv[1:])
     if argv and argv[0] in {"run", "generate"}:
         return cmd_run(argv[1:])
     return cmd_run(argv)

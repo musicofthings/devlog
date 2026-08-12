@@ -24,7 +24,7 @@ def load_status(repo: Path) -> dict:
 
 
 def record_event(repo: Path, *, event: str, date: str, at: str | None = None) -> Path:
-    """Record a 'published' or 'deleted' event. date is the post's YYYY-MM-DD."""
+    """Record a publish/delete/hide/unhide event. date is the post's YYYY-MM-DD."""
     data = load_status(repo)
     data[f"last_{event}_date"] = date
     data[f"last_{event}_at"] = at or datetime.now(UTC).isoformat(timespec="seconds")

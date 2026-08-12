@@ -1,4 +1,4 @@
-name: Delete devlog post
+name: Delete or hide devlog post
 
 # Triggered from the admin panel on docs/log/index.html via the GitHub API's
 # workflow_dispatch endpoint, using a personal token scoped to Actions:
@@ -14,14 +14,18 @@ on:
   workflow_dispatch:
     inputs:
       date:
-        description: "Post date to delete (YYYY-MM-DD)"
+        description: "Post date (YYYY-MM-DD)"
         required: true
+      action:
+        description: "delete | hide | unhide (default: delete)"
+        required: false
+        default: "delete"
 
 permissions:
   contents: write
 
 jobs:
-  delete:
+  manage:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,15 +33,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate date
+      - name: Validate inputs
         env:
-          DELETE_DATE: ${{ github.event.inputs.date }}
+          MANAGE_DATE: ${{ github.event.inputs.date }}
+          MANAGE_ACTION: ${{ github.event.inputs.action || 'delete' }}
         run: |
           set -euo pipefail
-          if [[ ! "$DELETE_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-            echo "Invalid date input: $DELETE_DATE (expected YYYY-MM-DD)"
+          if [[ ! "$MANAGE_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "Invalid date input: $MANAGE_DATE (expected YYYY-MM-DD)"
             exit 1
           fi
+          case "$MANAGE_ACTION" in
+            delete|hide|unhide) ;;
+            *)
+              echo "Invalid action input: $MANAGE_ACTION (expected delete|hide|unhide)"
+              exit 1
+              ;;
+          esac
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -51,11 +63,18 @@ jobs:
       - name: Configure devlog
         run: devlog init --defaults
 
-      - name: Delete post
-        run: devlog delete --date "$DELETE_DATE"
+      - name: Apply action
         env:
-          DELETE_DATE: ${{ github.event.inputs.date }}
+          MANAGE_DATE: ${{ github.event.inputs.date }}
+          MANAGE_ACTION: ${{ github.event.inputs.action || 'delete' }}
           GIT_AUTHOR_NAME: devlog-bot
           GIT_AUTHOR_EMAIL: devlog-bot@users.noreply.github.com
           GIT_COMMITTER_NAME: devlog-bot
           GIT_COMMITTER_EMAIL: devlog-bot@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          case "$MANAGE_ACTION" in
+            delete)  devlog delete --date "$MANAGE_DATE" ;;
+            hide)    devlog hide --date "$MANAGE_DATE" ;;
+            unhide)  devlog unhide --date "$MANAGE_DATE" ;;
+          esac

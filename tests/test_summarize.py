@@ -54,6 +54,19 @@ def test_generate_post_uses_claude_when_key_set(monkeypatch):
     assert 3 <= text.count(".") <= 5 or 3 <= len([s for s in text.split(".") if s.strip()]) <= 5
 
 
+def test_generate_post_redacts_claude_api_output(monkeypatch):
+    """API path must run a final redact even if the model echoes a secret."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    leaked = (
+        "I used Authorization: Bearer secret-bearer-token while testing the API. "
+        "Then I fixed the parser. Also ran pytest."
+    )
+    with patch("devlog.summarize.summarize_with_claude", return_value=leaked):
+        text = generate_post([_sess()], allow_external_api=True)
+    assert "secret-bearer-token" not in text
+    assert "[REDACTED_SECRET]" in text
+
+
 def test_claude_failure_falls_back(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     with patch("devlog.summarize.summarize_with_claude", side_effect=RuntimeError("boom")):

@@ -9,6 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from devlog.gitutil import GitRunner, default_git
+from devlog.hidden import load_hidden_dates
 from devlog.status import load_status
 
 _DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.md$")
@@ -114,11 +115,24 @@ ADMIN_CSS = """
   color: var(--mist);
   margin-top: 0.5rem;
 }
-.feed .delete-btn {
+.feed .delete-btn,
+.feed .hide-btn,
+.admin .unhide-btn {
   margin-left: 0.75rem;
   font-size: 0.78rem;
   font-family: "IBM Plex Mono", monospace;
   cursor: pointer;
+}
+.admin .hidden-list {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.85rem;
+}
+.admin .hidden-list li {
+  padding: 0.35rem 0;
+  border-top: 1px dashed var(--line);
 }
 """
 
@@ -257,7 +271,30 @@ def _js_string(value: str) -> str:
     return json.dumps(value).replace("</", "<\\/")
 
 
-def _admin_panel_html(github_repo: str, branch: str) -> str:
+def _admin_panel_html(
+    github_repo: str,
+    branch: str,
+    hidden_dates: list[str] | None = None,
+) -> str:
+    hidden_dates = hidden_dates or []
+    if hidden_dates:
+        hidden_items = "\n".join(
+            "<li>"
+            f'<span>{html.escape(day)}</span>'
+            f'<button type="button" class="unhide-btn" data-date="{html.escape(day)}">'
+            "Unhide</button>"
+            "</li>"
+            for day in hidden_dates
+        )
+        hidden_block = (
+            '<p class="status">Hidden from the public feed '
+            "(markdown kept in <code>posts/</code>):</p>\n"
+            f'<ul class="hidden-list" id="devlog-hidden-list">\n{hidden_items}\n</ul>'
+        )
+    else:
+        hidden_block = (
+            '<p class="status" id="devlog-hidden-list">No soft-hidden posts.</p>'
+        )
     return f"""
 <details class="admin" id="devlog-admin-details">
   <summary>Admin: manage posts</summary>
@@ -280,6 +317,7 @@ def _admin_panel_html(github_repo: str, branch: str) -> str:
     <button type="button" id="devlog-token-save">Save token</button>
     <button type="button" id="devlog-token-clear">Clear token</button>
   </div>
+  {hidden_block}
   <p class="status" id="devlog-admin-status"></p>
 </details>
 <script>
@@ -290,6 +328,8 @@ def _admin_panel_html(github_repo: str, branch: str) -> str:
   var STORAGE_KEY = "devlog-admin-token";
   var statusEl = document.getElementById("devlog-admin-status");
   var detailsEl = document.getElementById("devlog-admin-details");
+  var POLL_MS = 4000;
+  var POLL_MAX = 45;
 
   function setStatus(msg) {{
     if (statusEl) statusEl.textContent = msg;
@@ -334,47 +374,149 @@ def _admin_panel_html(github_repo: str, branch: str) -> str:
     }});
   }}
 
+  function authHeaders(token) {{
+    return {{
+      "Authorization": "token " + token,
+      "Accept": "application/vnd.github+json",
+      "Content-Type": "application/json"
+    }};
+  }}
+
+  function pollWorkflowRun(token, actionLabel, dispatchedAt) {{
+    var attempts = 0;
+    function tick() {{
+      attempts += 1;
+      fetch(
+        "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW +
+          "/runs?event=workflow_dispatch&per_page=5",
+        {{ headers: authHeaders(token) }}
+      ).then(function (resp) {{
+        if (!resp.ok) {{
+          setStatus(
+            actionLabel + " dispatched; could not poll run status (" + resp.status +
+            "). Check the Actions tab."
+          );
+          return null;
+        }}
+        return resp.json();
+      }}).then(function (data) {{
+        if (!data) return;
+        var runs = data.workflow_runs || [];
+        var run = null;
+        for (var i = 0; i < runs.length; i++) {{
+          var created = Date.parse(runs[i].created_at);
+          if (!isNaN(created) && created + 5000 >= dispatchedAt) {{
+            run = runs[i];
+            break;
+          }}
+        }}
+        if (!run) {{
+          if (attempts >= POLL_MAX) {{
+            setStatus(
+              actionLabel + " dispatched; run not found yet. Check the Actions tab."
+            );
+            return;
+          }}
+          setStatus(actionLabel + " dispatched; waiting for Actions run...");
+          setTimeout(tick, POLL_MS);
+          return;
+        }}
+        if (run.status !== "completed") {{
+          setStatus(
+            actionLabel + " run " + run.status +
+            (run.conclusion ? " (" + run.conclusion + ")" : "") +
+            "... refresh when Pages finishes."
+          );
+          if (attempts >= POLL_MAX) return;
+          setTimeout(tick, POLL_MS);
+          return;
+        }}
+        setStatus(
+          actionLabel + " finished: " + (run.conclusion || "completed") +
+          ". Refresh in a few seconds for Pages."
+        );
+      }}).catch(function (err) {{
+        setStatus(actionLabel + " dispatched; poll failed: " + err);
+      }});
+    }}
+    setTimeout(tick, 1500);
+  }}
+
+  function dispatchAction(action, day, confirmMsg, label) {{
+    if (!confirm(confirmMsg)) {{
+      return;
+    }}
+    var token = getToken();
+    if (!token) {{
+      setStatus("Save a token first.");
+      return;
+    }}
+    var dispatchedAt = Date.now();
+    setStatus("Requesting " + label + " of " + day + "...");
+    fetch(
+      "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW + "/dispatches",
+      {{
+        method: "POST",
+        headers: authHeaders(token),
+        body: JSON.stringify({{
+          ref: BRANCH,
+          inputs: {{ date: day, action: action }}
+        }})
+      }}
+    ).then(function (resp) {{
+      if (resp.status === 204) {{
+        setStatus(label + " requested for " + day + " -- watching Actions...");
+        pollWorkflowRun(token, label, dispatchedAt);
+      }} else if (resp.status === 403) {{
+        setStatus(
+          label + " request failed (403): token can't trigger this workflow. " +
+          "Check the token's Repository access is 'Only select repositories' " +
+          "(not 'Public Repositories (read-only)', which silently forces " +
+          "read-only) and that Actions permission is 'Read and write'."
+        );
+      }} else {{
+        resp.text().then(function (text) {{
+          setStatus(label + " request failed (" + resp.status + "): " + text);
+        }});
+      }}
+    }}).catch(function (err) {{
+      setStatus(label + " request failed: " + err);
+    }});
+  }}
+
   document.querySelectorAll(".delete-btn").forEach(function (btn) {{
     btn.addEventListener("click", function () {{
       var day = btn.getAttribute("data-date");
-      if (!confirm("Delete the " + day + " post? This pushes a real commit removing it.")) {{
-        return;
-      }}
-      var token = getToken();
-      if (!token) {{
-        setStatus("Save a token first.");
-        return;
-      }}
-      setStatus("Requesting delete of " + day + "...");
-      fetch(
-        "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW + "/dispatches",
-        {{
-          method: "POST",
-          headers: {{
-            "Authorization": "token " + token,
-            "Accept": "application/vnd.github+json",
-            "Content-Type": "application/json"
-          }},
-          body: JSON.stringify({{ ref: BRANCH, inputs: {{ date: day }} }})
-        }}
-      ).then(function (resp) {{
-        if (resp.status === 204) {{
-          setStatus("Delete requested for " + day + " -- refresh in about 30 seconds.");
-        }} else if (resp.status === 403) {{
-          setStatus(
-            "Delete request failed (403): token can't trigger this workflow. " +
-            "Check the token's Repository access is 'Only select repositories' " +
-            "(not 'Public Repositories (read-only)', which silently forces " +
-            "read-only) and that Actions permission is 'Read and write'."
-          );
-        }} else {{
-          resp.text().then(function (text) {{
-            setStatus("Delete request failed (" + resp.status + "): " + text);
-          }});
-        }}
-      }}).catch(function (err) {{
-        setStatus("Delete request failed: " + err);
-      }});
+      dispatchAction(
+        "delete",
+        day,
+        "Delete the " + day + " post? This pushes a real commit removing it.",
+        "Delete"
+      );
+    }});
+  }});
+
+  document.querySelectorAll(".hide-btn").forEach(function (btn) {{
+    btn.addEventListener("click", function () {{
+      var day = btn.getAttribute("data-date");
+      dispatchAction(
+        "hide",
+        day,
+        "Hide the " + day + " post from the public feed? Markdown stays in the repo.",
+        "Hide"
+      );
+    }});
+  }});
+
+  document.querySelectorAll(".unhide-btn").forEach(function (btn) {{
+    btn.addEventListener("click", function () {{
+      var day = btn.getAttribute("data-date");
+      dispatchAction(
+        "unhide",
+        day,
+        "Unhide the " + day + " post back onto the public feed?",
+        "Unhide"
+      );
     }});
   }});
 }})();
@@ -399,6 +541,10 @@ def _format_status_line(status: dict) -> str:
     del_at = status.get("last_deleted_at")
     if del_date and del_at:
         parts.append(f"Last deleted: {del_date} ({_friendly_timestamp(del_at)})")
+    hid_date = status.get("last_hidden_date")
+    hid_at = status.get("last_hidden_at")
+    if hid_date and hid_at:
+        parts.append(f"Last hidden: {hid_date} ({_friendly_timestamp(hid_at)})")
     return " · ".join(parts)
 
 
@@ -407,7 +553,9 @@ def build_feed_html(
     github_repo: str | None = None,
     branch: str = "main",
     status: dict | None = None,
+    hidden_dates: list[str] | None = None,
 ) -> str:
+    hidden_dates = hidden_dates or []
     if not posts:
         items = '<li><p class="excerpt">No posts yet.</p></li>'
     else:
@@ -415,20 +563,25 @@ def build_feed_html(
         for day, _path, body in posts:
             iso = day.isoformat()
             href = f"{iso}.html"
-            delete_btn = (
-                f'<button type="button" class="delete-btn" data-date="{iso}">Delete</button>'
-                if github_repo
-                else ""
-            )
+            manage_btns = ""
+            if github_repo:
+                manage_btns = (
+                    f'<button type="button" class="hide-btn" data-date="{iso}">Hide</button>'
+                    f'<button type="button" class="delete-btn" data-date="{iso}">Delete</button>'
+                )
             chunks.append(
                 "<li>"
                 f'<a href="{href}">{html.escape(iso)}</a>'
-                f"{delete_btn}"
+                f"{manage_btns}"
                 f'<p class="excerpt">{html.escape(_excerpt(body))}</p>'
                 "</li>"
             )
         items = "\n".join(chunks)
-    admin_html = _admin_panel_html(github_repo, branch) if github_repo else ""
+    admin_html = (
+        _admin_panel_html(github_repo, branch, hidden_dates=hidden_dates)
+        if github_repo
+        else ""
+    )
     admin_css = f"<style>{ADMIN_CSS}</style>" if github_repo else ""
     status_line = _format_status_line(status) if status else ""
     status_html = (
@@ -475,18 +628,27 @@ def rebuild_site(
         written.append(nojekyll)
 
     posts = list_posts(posts_dir)
+    hidden = load_hidden_dates(repo_path)
+    hidden_sorted = sorted(hidden, reverse=True)
+    visible = [(d, p, b) for d, p, b in posts if d.isoformat() not in hidden]
     github_repo = detect_github_repo(repo_path, git_run)
     status = load_status(repo_path)
     feed_path = log_dir / "index.html"
     feed_path.write_text(
-        build_feed_html(posts, github_repo=github_repo, branch=branch, status=status),
+        build_feed_html(
+            visible,
+            github_repo=github_repo,
+            branch=branch,
+            status=status,
+            hidden_dates=hidden_sorted,
+        ),
         encoding="utf-8",
     )
     written.append(feed_path)
 
     existing = {p.name for p in log_dir.glob("????-??-??.html")}
     keep: set[str] = set()
-    for day, _path, body in posts:
+    for day, _path, body in visible:
         name = f"{day.isoformat()}.html"
         keep.add(name)
         day_path = log_dir / name

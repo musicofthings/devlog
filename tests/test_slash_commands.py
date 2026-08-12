@@ -13,7 +13,14 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-COMMANDS = ("devlog-init", "devlog-publish", "devlog-delete", "devlog-status")
+COMMANDS = (
+    "devlog-init",
+    "devlog-publish",
+    "devlog-delete",
+    "devlog-hide",
+    "devlog-unhide",
+    "devlog-status",
+)
 
 SURFACES = {
     "claude": ROOT / ".claude" / "commands",
@@ -74,6 +81,16 @@ def test_delete_requires_confirmation_on_all_surfaces():
         assert dry.search(text), f"{surface} delete missing dry-run first step"
 
 
+def test_hide_and_unhide_require_confirmation_on_all_surfaces():
+    for name, verb in (("devlog-hide", "hide"), ("devlog-unhide", "unhide")):
+        needle = re.compile(rf"never run the real {verb} without an explicit yes", re.I)
+        dry = re.compile(rf"devlog {verb} --date .+ --dry-run")
+        for surface in ("claude", "cursor", "grok", "codex_skills"):
+            text = _command_path(surface, name).read_text(encoding="utf-8")
+            assert needle.search(text), f"{surface} {name} missing confirmation rule"
+            assert dry.search(text), f"{surface} {name} missing dry-run first step"
+
+
 def test_publish_mentions_force_prompt_on_all_surfaces():
     for surface in ("claude", "cursor", "grok", "codex_skills"):
         text = _command_path(surface, "devlog-publish").read_text(encoding="utf-8")
@@ -87,6 +104,7 @@ def test_status_checks_status_file_and_schedule():
         assert ".devlog-status.json" in text
         assert "devlog publish --dry-run" in text
         assert "DailyDevLogPublish" in text
+        assert ".devlog-hidden.json" in text
 
 
 def test_legacy_codex_prompts_still_present_alongside_agents_skills():

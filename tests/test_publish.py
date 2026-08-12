@@ -255,6 +255,94 @@ def test_publish_auto_refuses_preexisting_managed_changes(tmp_path: Path):
     assert not (repo / "posts").exists()
 
 
+def test_publish_auto_resets_local_commit_when_push_fails(tmp_path: Path):
+    """Failed push after commit must reset so the next nightly can retry."""
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    sample = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+    cfg = DevlogConfig(
+        sources=["codex"],
+        codex_root=str(sample),
+        repo_path=str(repo).replace("\\", "/"),
+        publish_mode="auto",
+        remote="origin",
+        branch="main",
+    )
+    calls: list[list[str]] = []
+
+    def fake_git(cmd: list[str], cwd: Path):
+        calls.append(cmd)
+        from subprocess import CompletedProcess
+
+        if cmd[:2] == ["git", "status"] and "--untracked-files=all" in cmd:
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
+        if cmd[:2] == ["git", "status"]:
+            return CompletedProcess(cmd, 0, stdout="M posts/2026-07-20.md\n", stderr="")
+        if cmd[:2] == ["git", "push"]:
+            return CompletedProcess(cmd, 1, stdout="", stderr="remote rejected")
+        if cmd[:3] == ["git", "reset", "--hard"]:
+            # Simulate HEAD~1 restoring the pre-publish tree (no post yet).
+            (repo / "posts" / "2026-07-20.md").unlink(missing_ok=True)
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with pytest.raises(RuntimeError, match="remote rejected") as excinfo:
+        publish_day(cfg, date(2026, 7, 20), force=True, git_run=fake_git)
+
+    assert "local publish commit was reset" in str(excinfo.value)
+    assert any(c[:3] == ["git", "reset", "--hard"] and c[-1] == "HEAD~1" for c in calls)
+    assert not (repo / "posts" / "2026-07-20.md").exists()
+
+
+def test_publish_auto_rolls_back_on_precommit_failure(tmp_path: Path):
+    """Pre-commit / commit failure must not leave dirty managed paths forever."""
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    sample = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+    cfg = DevlogConfig(
+        sources=["codex"],
+        codex_root=str(sample),
+        repo_path=str(repo).replace("\\", "/"),
+        publish_mode="auto",
+        remote="origin",
+        branch="main",
+    )
+
+    def fake_git(cmd: list[str], cwd: Path):
+        from subprocess import CompletedProcess
+
+        if cmd[:2] == ["git", "status"] and "--untracked-files=all" in cmd:
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
+        if cmd[:2] == ["git", "status"]:
+            return CompletedProcess(cmd, 0, stdout="M posts/2026-07-20.md\n", stderr="")
+        if cmd[:2] == ["git", "commit"]:
+            return CompletedProcess(cmd, 1, stdout="", stderr="pre-commit failed")
+        if cmd[:2] == ["git", "checkout"]:
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with pytest.raises(RuntimeError, match="pre-commit failed") as excinfo:
+        publish_day(cfg, date(2026, 7, 20), force=True, git_run=fake_git)
+
+    assert "publish artifacts were rolled back" in str(excinfo.value)
+    assert not (repo / "posts" / "2026-07-20.md").exists()
+    assert not (repo / ".devlog-status.json").exists()
+    assert not (repo / "docs" / "log" / "2026-07-20.html").exists()
+    # Managed paths must be clean enough that a subsequent dirty-tree check
+    # would not forever refuse to publish because of leftover drafts.
+    assert not list((repo / "posts").glob("*.md")) if (repo / "posts").exists() else True
+
+
 def test_publish_pr_restores_original_branch_after_failure(tmp_path: Path):
     repo = tmp_path / "repo"
     (repo / "docs").mkdir(parents=True)
@@ -360,6 +448,69 @@ def test_publish_dry_run_prints_post_not_internal_dict(tmp_path: Path, capsys):
     assert "'status': 'dry_run'" not in output
 
 
+def test_publish_review_mode_writes_without_git(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    sample = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+    cfg = DevlogConfig(
+        sources=["codex"],
+        codex_root=str(sample),
+        repo_path=str(repo).replace("\\", "/"),
+        publish_mode="review",
+    )
+    out = publish_day(cfg, date(2026, 7, 20), force=True)
+    assert out["status"] == "pending_review"
+    assert "--confirm" in out["next_steps"]
+    assert (repo / "posts" / "2026-07-20.md").exists()
+
+
+def test_confirm_publish_pushes_existing_post(tmp_path: Path):
+    from devlog.publish import confirm_publish_day
+
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "docs" / "index.html").write_text(
+        '<a href="https://github.com/musicofthings/devlog">Open on GitHub →</a>\n',
+        encoding="utf-8",
+    )
+    write_post_markdown(repo / "posts", date(2026, 7, 20), "Reviewed post.")
+    rebuild_site(repo)
+    cfg = DevlogConfig(
+        repo_path=str(repo).replace("\\", "/"),
+        publish_mode="review",
+        remote="origin",
+        branch="main",
+    )
+    calls: list[list[str]] = []
+
+    def fake_git(cmd: list[str], cwd: Path):
+        calls.append(cmd)
+        from subprocess import CompletedProcess
+
+        if cmd[:2] == ["git", "status"]:
+            return CompletedProcess(cmd, 0, stdout="M posts/2026-07-20.md\n", stderr="")
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    out = confirm_publish_day(cfg, date(2026, 7, 20), git_run=fake_git)
+    assert out["status"] == "published_confirmed"
+    assert any(c[:2] == ["git", "push"] for c in calls)
+
+
+def test_delete_workflow_validates_action_input():
+    text = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "delete-post.yml"
+    ).read_text(encoding="utf-8")
+    assert "action:" in text
+    assert "delete|hide|unhide" in text
+    assert "devlog hide" in text
+    assert "devlog unhide" in text
+
+
 def test_list_posts_newest_first(tmp_path: Path):
     posts = tmp_path / "posts"
     write_post_markdown(posts, date(2026, 7, 20), "a")
@@ -456,6 +607,7 @@ def test_feed_includes_admin_panel_when_repo_detected(tmp_path: Path):
 
     assert "someone/theirfork" in feed
     assert 'class="delete-btn" data-date="2026-07-20"' in feed
+    assert 'class="hide-btn" data-date="2026-07-20"' in feed
     assert "Admin: manage posts" in feed
     assert "Actions: read and write" in feed
     # "Public Repositories (read-only)" silently caps a fine-grained PAT to
@@ -464,6 +616,7 @@ def test_feed_includes_admin_panel_when_repo_detected(tmp_path: Path):
     # a real failure a user hit in practice. The panel must warn about it.
     assert "Only select repositories" in feed
     assert "Public Repositories" in feed
+    assert "pollWorkflowRun" in feed
 
 
 def test_admin_panel_script_is_syntactically_valid_javascript(tmp_path: Path):

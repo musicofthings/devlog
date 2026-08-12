@@ -80,11 +80,14 @@ Publish yesterday's post into `posts/` + rebuild `docs/log/`:
 
 ```bash
 devlog publish --dry-run
-devlog publish                  # uses publish_mode from config: auto | pr | manual
+devlog publish                  # uses publish_mode from config: auto | pr | manual | review
 devlog publish --date 2026-07-20 --force
+devlog publish --confirm --date 2026-07-20   # push an already-written review-mode post
 ```
 
 Publishing always runs locally — your session transcripts never leave this machine, so there's no "publish" button on the website. To publish on demand instead of waiting for the nightly schedule, either run `devlog publish` yourself, or double-click the `Publish Devlog Now.cmd` shortcut `devlog init` writes to your Desktop (opens a window, shows the result, waits for a keypress so you actually see it).
+
+With `publish_mode = review`, the nightly job writes `posts/` + `docs/log/` but does not push. After you edit the markdown, run `devlog publish --confirm --date YYYY-MM-DD` to commit and push (same recovery as auto if push fails).
 
 Enable GitHub Pages: repo **Settings → Pages → Source: GitHub Actions**
 (workflow: `.github/workflows/pages.yml` uploads `docs/` as the site root).
@@ -121,20 +124,30 @@ pip show devlog   # look at "Editable project location"
 
 If it points somewhere that no longer exists, reinstall from the real repo checkout: `pip install -e ".[dev]"`.
 
-## Delete a published post
+## Hide or delete a published post
 
-`publish_mode = auto` means posts go public with no review, so there's a way to take one back down without touching the machine that owns the repo:
+`publish_mode = auto` means posts go public with no review, so there's a way to take one back down without touching the machine that owns the repo.
+
+Soft-hide (preferred when you may want the post back): keeps `posts/YYYY-MM-DD.md`, removes the day from the public feed:
+
+```bash
+devlog hide --date 2026-07-20
+devlog unhide --date 2026-07-20
+devlog hide --date 2026-07-20 --dry-run
+```
+
+Hard delete (real git removal of the markdown):
 
 ```bash
 devlog delete --date 2026-07-20          # removes posts/2026-07-20.md, rebuilds the site, commits, pushes
 devlog delete --date 2026-07-20 --dry-run
 ```
 
-The same thing is available from the live site itself: `docs/log/index.html` renders an "Admin: manage posts" panel (only when the repo's `origin` remote points at GitHub — auto-detected, no config needed). Paste a GitHub **fine-grained personal access token scoped to this repo, with Actions: read and write permission only** (not Contents) into the token field — it's saved in your browser's local storage and never sent anywhere except `api.github.com`. Clicking Delete on a post triggers `.github/workflows/delete-post.yml`, which runs `devlog delete` with the workflow's own repo-write credentials — your personal token only ever needs permission to trigger the workflow, never to write repository contents directly.
+The same actions are available from the live site itself: `docs/log/index.html` renders an "Admin: manage posts" panel (only when the repo's `origin` remote points at GitHub — auto-detected, no config needed). Paste a GitHub **fine-grained personal access token scoped to this repo, with Actions: read and write permission only** (not Contents) into the token field — it's saved in your browser's local storage and never sent anywhere except `api.github.com`. Clicking Hide / Unhide / Delete on a post triggers `.github/workflows/delete-post.yml` (inputs: `date`, optional `action`), which runs the matching `devlog` command with the workflow's own repo-write credentials — your personal token only ever needs permission to trigger the workflow, never to write repository contents directly. After dispatch, the panel polls the Actions run until it completes.
 
-The admin panel is collapsed by default. Clicking Delete (or clicking Save token with nothing entered) automatically expands it and scrolls it into view so the result — "Save a token first", "Delete requested…", or an error — is always visible; it doesn't stay hidden just because the panel happened to load closed.
+The admin panel is collapsed by default. Clicking Hide/Delete (or clicking Save token with nothing entered) automatically expands it and scrolls it into view so the result is always visible.
 
-Deletion is real: it's a normal commit removing `posts/YYYY-MM-DD.md` and rebuilding `docs/log/`. It's recoverable from git history on a full clone, but gone from the live site and any future clone going forward.
+Deletion is real: it's a normal commit removing `posts/YYYY-MM-DD.md` and rebuilding `docs/log/`. Soft-hide is reversible via `unhide` without rewriting history.
 
 ### Troubleshooting: Delete fails with `403 Resource not accessible by personal access token`
 
@@ -146,7 +159,7 @@ The feed page shows a small status line — "Last published: 2026-08-06 (2026-08
 
 ## Slash commands for AI coding assistants
 
-If you use Claude Code, Codex, Cursor, or Grok Build to work in a repo with devlog installed, you can drive it with `/devlog-init`, `/devlog-publish`, `/devlog-delete`, and `/devlog-status` instead of typing the CLI commands yourself. Each command just tells the assistant which `devlog` commands to run and how to handle the output (e.g. `/devlog-delete` always confirms with you before running the real, non-dry-run delete).
+If you use Claude Code, Codex, Cursor, or Grok Build to work in a repo with devlog installed, you can drive it with `/devlog-init`, `/devlog-publish`, `/devlog-delete`, `/devlog-hide`, `/devlog-unhide`, and `/devlog-status` instead of typing the CLI commands yourself. Each command just tells the assistant which `devlog` commands to run and how to handle the output (e.g. `/devlog-delete` and `/devlog-hide` always confirm with you before running the real, non-dry-run action).
 
 | Tool | Where the commands live | Setup needed |
 |------|--------------------------|--------------|

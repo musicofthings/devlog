@@ -145,3 +145,22 @@ def test_main_dispatches_delete_subcommand(monkeypatch):
 
     assert code == 0
     assert calls == [["--date", "2026-07-20"]]
+
+
+def test_main_dispatches_hide_and_unhide(monkeypatch):
+    import devlog.hide_cmd
+
+    hide_calls = []
+    unhide_calls = []
+
+    monkeypatch.setattr(
+        devlog.hide_cmd, "cmd_hide", lambda argv: hide_calls.append(argv) or 0
+    )
+    monkeypatch.setattr(
+        devlog.hide_cmd, "cmd_unhide", lambda argv: unhide_calls.append(argv) or 0
+    )
+
+    assert main(["hide", "--date", "2026-07-20"]) == 0
+    assert main(["unhide", "--date", "2026-07-20", "--dry-run"]) == 0
+    assert hide_calls == [["--date", "2026-07-20"]]
+    assert unhide_calls == [["--date", "2026-07-20", "--dry-run"]]

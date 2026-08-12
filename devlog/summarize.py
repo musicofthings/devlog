@@ -129,7 +129,8 @@ def generate_post(
                 model=model or CLAUDE_MODEL,
             )
             if post:
-                return post
+                # Model output can echo secrets from the digest; redact again.
+                return redact_sensitive_text(post)
         except Exception as e:  # network/auth issues -> don't crash the pipeline
             print(f"[warn] Claude summarization failed ({e}); falling back to template.")
     return summarize_with_template(sessions)

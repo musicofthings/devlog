@@ -7,7 +7,7 @@ import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-PUBLISH_MODES = ("auto", "pr", "manual")
+PUBLISH_MODES = ("auto", "pr", "manual", "review")
 DEFAULT_SOURCES = ["claude_code", "codex", "cursor"]
 # "manual" by default: posts can contain raw user prompts, so a human should
 # review before anything is pushed to a public site.
