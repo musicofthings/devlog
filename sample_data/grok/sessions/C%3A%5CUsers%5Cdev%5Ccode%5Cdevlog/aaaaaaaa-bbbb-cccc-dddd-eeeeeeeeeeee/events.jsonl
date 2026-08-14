@@ -1,0 +1,8 @@
+{"ts":"2026-07-20T10:00:01Z","type":"turn_started","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}
+{"ts":"2026-07-20T10:00:05Z","type":"tool_started","tool_name":"read_file"}
+{"ts":"2026-07-20T10:00:06Z","type":"tool_completed","tool_name":"read_file","tool_call_id":"call-read-1","outcome":"success"}
+{"ts":"2026-07-20T10:00:10Z","type":"tool_started","tool_name":"run_terminal_command"}
+{"ts":"2026-07-20T10:00:12Z","type":"tool_completed","tool_name":"run_terminal_command","tool_call_id":"call-shell-1","outcome":"success"}
+{"ts":"2026-07-20T10:30:00Z","type":"turn_started","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}
+{"ts":"2026-07-20T10:30:05Z","type":"tool_started","tool_name":"search_replace"}
+{"ts":"2026-07-20T10:30:06Z","type":"tool_completed","tool_name":"search_replace","tool_call_id":"call-write-1","outcome":"success"}

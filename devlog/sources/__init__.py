@@ -1,3 +1,9 @@
+from devlog.sources import antigravity as _antigravity  # noqa: F401
 from devlog.sources import claude_code as _claude_code  # noqa: F401
 from devlog.sources import codex as _codex  # noqa: F401
+from devlog.sources import copilot as _copilot  # noqa: F401
 from devlog.sources import cursor as _cursor  # noqa: F401
+from devlog.sources import grok as _grok  # noqa: F401
+from devlog.sources import opencode as _opencode  # noqa: F401
+from devlog.sources import vitreous as _vitreous  # noqa: F401
+from devlog.sources import warp as _warp  # noqa: F401

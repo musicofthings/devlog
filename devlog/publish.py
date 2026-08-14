@@ -11,6 +11,7 @@ from devlog.digest import slice_for_date
 from devlog.gitutil import GitPublishError, GitRunner, add_and_commit, commit_and_push, git_paths
 from devlog.gitutil import default_git as _default_git
 from devlog.models import RawSession
+from devlog.obsidian import planned_paths, try_mirror_post
 from devlog.site import list_posts, rebuild_site, write_post_markdown
 from devlog.status import record_event, status_path
 from devlog.summarize import generate_post
@@ -261,6 +262,7 @@ def publish_day(
             "post": body,
             "sessions": len(digests),
             "publish_mode": cfg.publish_mode,
+            "obsidian": planned_paths(cfg, target),
         }
 
     previous_body = post_path.read_text(encoding="utf-8") if post_path.exists() else None
@@ -284,6 +286,8 @@ def publish_day(
     status_file = record_event(repo, event="published", date=target.isoformat())
     written = rebuild_site(repo, git_run=git_run, branch=cfg.branch)
     artifacts = [post_path, status_file, *written]
+    post_markdown = post_path.read_text(encoding="utf-8")
+    obsidian_result = try_mirror_post(cfg, target, post_markdown)
 
     result = {
         "status": "written",
@@ -292,6 +296,7 @@ def publish_day(
         "site_files": [str(p) for p in written],
         "publish_mode": cfg.publish_mode,
         "sessions": len(digests),
+        "obsidian": obsidian_result,
     }
 
     if cfg.publish_mode == "manual":
@@ -497,6 +502,10 @@ def cmd_publish(argv: list[str] | None = None) -> int:
         if args.verbose:
             details = {key: value for key, value in outcome.items() if key != "post"}
             print(details)
+        obsidian = outcome.get("obsidian") or {}
+        if obsidian.get("status") == "enabled":
+            print(f"obsidian archive: {obsidian.get('archive')}")
+            print(f"obsidian daily: {obsidian.get('daily')}")
         print(outcome.get("post", ""))
     elif args.verbose:
         print(outcome)
@@ -504,4 +513,12 @@ def cmd_publish(argv: list[str] | None = None) -> int:
         print(f"{outcome.get('status')}: {outcome.get('date', target.isoformat())}")
         if outcome.get("next_steps"):
             print(outcome["next_steps"])
+        obsidian = outcome.get("obsidian") or {}
+        status = obsidian.get("status")
+        if status == "vault_missing":
+            print(f"[warn] Obsidian vault missing; skipped mirror: {obsidian.get('vault')}")
+        elif status == "error":
+            print(f"[warn] Obsidian mirror failed: {obsidian.get('error')}")
+        elif status == "written":
+            print(f"obsidian: {obsidian.get('archive')}")
     return 0

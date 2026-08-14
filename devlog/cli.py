@@ -26,6 +26,12 @@ def build_run_parser() -> argparse.ArgumentParser:
     parser.add_argument("--claude-root", default=None, help="Claude Code data root")
     parser.add_argument("--codex-root", default=None, help="Codex data root")
     parser.add_argument("--cursor-root", default=None, help="Cursor data root")
+    parser.add_argument("--grok-root", default=None, help="Grok CLI data root")
+    parser.add_argument("--copilot-root", default=None, help="GitHub Copilot CLI data root")
+    parser.add_argument("--opencode-root", default=None, help="OpenCode data root (opencode.db)")
+    parser.add_argument("--warp-root", default=None, help="Warp data root")
+    parser.add_argument("--vitreous-root", default=None, help="Vitreous sessions root")
+    parser.add_argument("--antigravity-root", default=None, help="Antigravity / Gemini data root")
     parser.add_argument(
         "--dry-run", action="store_true", help="Print the post but do not write a file"
     )
@@ -52,12 +58,20 @@ def _resolve_config(args: argparse.Namespace) -> DevlogConfig:
     cfg = load_config() or DevlogConfig()
     if args.sources:
         cfg.sources = [s.strip() for s in args.sources.split(",") if s.strip()]
-    if args.claude_root:
-        cfg.claude_root = args.claude_root
-    if args.codex_root:
-        cfg.codex_root = args.codex_root
-    if args.cursor_root:
-        cfg.cursor_root = args.cursor_root
+    for attr in (
+        "claude_root",
+        "codex_root",
+        "cursor_root",
+        "grok_root",
+        "copilot_root",
+        "opencode_root",
+        "warp_root",
+        "vitreous_root",
+        "antigravity_root",
+    ):
+        val = getattr(args, attr, None)
+        if val:
+            setattr(cfg, attr, val)
     if args.allow_external_api is not None:
         cfg.allow_external_api = args.allow_external_api
     return cfg
@@ -150,6 +164,10 @@ def main(argv: list[str] | None = None) -> int:
         from devlog.hide_cmd import cmd_unhide
 
         return cmd_unhide(argv[1:])
+    if argv and argv[0] == "obsidian":
+        from devlog.obsidian import cmd_obsidian
+
+        return cmd_obsidian(argv[1:])
     if argv and argv[0] in {"run", "generate"}:
         return cmd_run(argv[1:])
     return cmd_run(argv)

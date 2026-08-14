@@ -1,0 +1,10 @@
+{"type":"session.start","data":{"sessionId":"bbbbbbbb-cccc-dddd-eeee-ffffffffffff","startTime":"2026-07-20T14:00:00Z","context":{"cwd":"C:\\Users\\dev\\code\\vitreous","gitRoot":"C:\\Users\\dev\\code\\vitreous"}},"id":"evt-start","timestamp":"2026-07-20T14:00:00Z","parentId":null}
+{"type":"system.message","data":{"role":"system","content":"You are Copilot CLI."},"id":"evt-sys","timestamp":"2026-07-20T14:00:01Z"}
+{"type":"user.message","data":{"content":"Review the consent gate and suggest next steps","source":"user"},"id":"evt-user-1","timestamp":"2026-07-20T14:00:02Z"}
+{"type":"user.message","data":{"content":"","source":"system"},"id":"evt-skip-empty","timestamp":"2026-07-20T14:00:03Z"}
+{"type":"user.message","data":{"content":"<skill-context name=\"sync\">ignore this chrome</skill-context>","source":"skill-sync"},"id":"evt-skip-skill","timestamp":"2026-07-20T14:00:04Z"}
+NOT JSON
+{"type":"assistant.message","data":{"content":"I'll inspect git state first.","toolRequests":[{"name":"powershell","arguments":{"command":"git status --porcelain"},"type":"function"}]},"id":"evt-asst-1","timestamp":"2026-07-20T14:00:05Z"}
+{"type":"tool.execution_start","data":{"toolName":"powershell","arguments":{"command":"git status --porcelain"}},"id":"evt-tool-1","timestamp":"2026-07-20T14:00:06Z"}
+{"type":"tool.execution_start","data":{"toolName":"view","arguments":{"path":"C:\\Users\\dev\\code\\vitreous\\src\\consent.ts"}},"id":"evt-tool-2","timestamp":"2026-07-20T14:00:08Z"}
+{"type":"user.message","data":{"content":"Also check the broker tests","source":"user"},"id":"evt-user-2","timestamp":"2026-07-20T14:30:00Z"}

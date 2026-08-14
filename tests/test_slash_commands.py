@@ -20,6 +20,7 @@ COMMANDS = (
     "devlog-hide",
     "devlog-unhide",
     "devlog-status",
+    "devlog-obsidian",
 )
 
 SURFACES = {
@@ -96,6 +97,13 @@ def test_publish_mentions_force_prompt_on_all_surfaces():
         text = _command_path(surface, "devlog-publish").read_text(encoding="utf-8")
         assert "devlog publish" in text
         assert "--force" in text
+
+
+def test_obsidian_mentions_backfill_on_all_surfaces():
+    for surface in ("claude", "cursor", "grok", "codex_skills"):
+        text = _command_path(surface, "devlog-obsidian").read_text(encoding="utf-8")
+        assert "devlog obsidian" in text
+        assert "--backfill" in text
 
 
 def test_status_checks_status_file_and_schedule():

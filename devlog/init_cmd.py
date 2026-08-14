@@ -6,13 +6,26 @@ import argparse
 from pathlib import Path
 
 from devlog.config import (
+    DEFAULT_OBSIDIAN_DAILY_FOLDER,
+    DEFAULT_OBSIDIAN_FOLDER,
+    DEFAULT_OBSIDIAN_ON_DELETE,
     DEFAULT_PUBLISH_MODE,
     DEFAULT_SOURCES,
+    OBSIDIAN_ON_DELETE,
     PUBLISH_MODES,
     DevlogConfig,
     default_config_path,
+    default_opencode_root,
     default_repo_path,
+    default_warp_root,
     save_config,
+)
+from devlog.obsidian import (
+    create_obsidian_vault,
+    default_new_vault_path,
+    detect_obsidian_vault,
+    ensure_obsidian_vault,
+    register_obsidian_vault,
 )
 from devlog.scheduler import (
     register_windows_task,
@@ -47,6 +60,12 @@ def build_config_from_prompts() -> DevlogConfig:
     claude_root = _prompt("claude_root", "~/.claude")
     codex_root = _prompt("codex_root", "~/.codex")
     cursor_root = _prompt("cursor_root", "~/.cursor")
+    grok_root = _prompt("grok_root", "~/.grok")
+    copilot_root = _prompt("copilot_root", "~/.copilot")
+    opencode_root = _prompt("opencode_root", default_opencode_root())
+    warp_root = _prompt("warp_root", default_warp_root())
+    vitreous_root = _prompt("vitreous_root", "~/.vitreous")
+    antigravity_root = _prompt("antigravity_root", "~/.gemini")
     repo_path = _prompt("repo_path (local git clone)", repo)
     publish_mode = _prompt(
         f"publish_mode ({'|'.join(PUBLISH_MODES)})",
@@ -58,17 +77,55 @@ def build_config_from_prompts() -> DevlogConfig:
     allow_external_api = _prompt_bool(
         "allow transcript text to be sent to an external API? (yes|no)", False
     )
+    detected = detect_obsidian_vault()
+    if detected is not None:
+        vault_default = str(detected).replace("\\", "/")
+        vault_label = "obsidian_vault (detected; blank to skip)"
+    else:
+        vault_default = str(default_new_vault_path()).replace("\\", "/")
+        vault_label = "obsidian_vault (will create if missing; blank to skip)"
+    obsidian_vault = _prompt(vault_label, vault_default)
+    obsidian_folder = DEFAULT_OBSIDIAN_FOLDER
+    obsidian_daily_folder = DEFAULT_OBSIDIAN_DAILY_FOLDER
+    obsidian_on_delete = DEFAULT_OBSIDIAN_ON_DELETE
+    if obsidian_vault:
+        vault_path = Path(obsidian_vault)
+        if not (vault_path / ".obsidian").is_dir():
+            try:
+                create_obsidian_vault(vault_path)
+                register_obsidian_vault(vault_path)
+            except OSError as exc:
+                print(f"[warn] Could not prepare Obsidian vault at {vault_path}: {exc}")
+        obsidian_folder = _prompt("obsidian_folder", DEFAULT_OBSIDIAN_FOLDER)
+        obsidian_daily_folder = _prompt(
+            "obsidian_daily_folder (blank = vault root)",
+            DEFAULT_OBSIDIAN_DAILY_FOLDER,
+        )
+        obsidian_on_delete = _prompt(
+            f"obsidian_on_delete ({'|'.join(OBSIDIAN_ON_DELETE)})",
+            DEFAULT_OBSIDIAN_ON_DELETE,
+        )
     return DevlogConfig(
         sources=sources,
         claude_root=claude_root,
         codex_root=codex_root,
         cursor_root=cursor_root,
+        grok_root=grok_root,
+        copilot_root=copilot_root,
+        opencode_root=opencode_root,
+        warp_root=warp_root,
+        vitreous_root=vitreous_root,
+        antigravity_root=antigravity_root,
         repo_path=repo_path.replace("\\", "/"),
         publish_mode=publish_mode,
         schedule_time=schedule_time,
         remote=remote,
         branch=branch,
         allow_external_api=allow_external_api,
+        obsidian_vault=obsidian_vault.replace("\\", "/"),
+        obsidian_folder=obsidian_folder,
+        obsidian_daily_folder=obsidian_daily_folder,
+        obsidian_on_delete=obsidian_on_delete,
     )
 
 
@@ -86,6 +143,12 @@ def pages_checklist() -> str:
         "feed (markdown stays in posts/). Use `devlog delete` for a real git removal.\n"
         "With publish_mode=review, nightly writes files locally; confirm with\n"
         "`devlog publish --confirm --date YYYY-MM-DD` when ready to push.\n"
+        "\nObsidian: `devlog init` detects your current vault from Obsidian's\n"
+        "app config, or creates ~/Documents/DevLog (with .obsidian) if none is\n"
+        "found. Blank the vault path to skip. Each publish mirrors the post into\n"
+        "DevLog/YYYY-MM-DD.md and a Daily Note embed. Hard delete never removes\n"
+        "vault notes unless obsidian_on_delete=remove or you pass\n"
+        "`devlog delete --also-obsidian`.\n"
     )
 
 
@@ -118,6 +181,12 @@ def cmd_init(argv: list[str] | None = None) -> int:
     cfg_path = args.config or default_config_path()
     if args.defaults:
         cfg = DevlogConfig()
+        try:
+            path, source = ensure_obsidian_vault()
+            cfg.obsidian_vault = str(path).replace("\\", "/")
+            print(f"Obsidian vault ({source}): {cfg.obsidian_vault}")
+        except OSError as exc:
+            print(f"[warn] Could not set up Obsidian vault: {exc}")
     else:
         print("Daily Dev Log setup — press Enter to accept defaults.\n")
         try:

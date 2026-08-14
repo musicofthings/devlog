@@ -8,6 +8,7 @@ from pathlib import Path
 
 from devlog.config import DevlogConfig, default_config_path, load_config
 from devlog.gitutil import GitPublishError, GitRunner, commit_and_push, default_git, git_paths
+from devlog.obsidian import remove_mirrored_post, should_remove_from_vault
 from devlog.site import rebuild_site
 from devlog.status import record_event
 
@@ -51,6 +52,7 @@ def delete_day(
     *,
     dry_run: bool = False,
     git_run: GitRunner = default_git,
+    also_obsidian: bool = False,
 ) -> dict:
     repo = Path(cfg.repo_path).expanduser()
     post_path = repo / "posts" / f"{target.isoformat()}.md"
@@ -59,10 +61,14 @@ def delete_day(
         raise FileNotFoundError(f"No post to delete: {post_path}")
 
     if dry_run:
+        obsidian_status = (
+            "remove" if should_remove_from_vault(cfg, also_obsidian=also_obsidian) else "preserve"
+        )
         return {
             "status": "dry_run",
             "date": target.isoformat(),
             "post_path": str(post_path),
+            "obsidian": {"status": obsidian_status},
         }
 
     if not repo.is_dir():
@@ -99,10 +105,16 @@ def delete_day(
         )
         raise RuntimeError(f"{exc} ({note})") from exc
 
+    if should_remove_from_vault(cfg, also_obsidian=also_obsidian):
+        obsidian_result = remove_mirrored_post(cfg, target)
+    else:
+        obsidian_result = {"status": "preserved"}
+
     return {
         "status": "deleted",
         "date": target.isoformat(),
         "post_path": str(post_path),
+        "obsidian": obsidian_result,
     }
 
 
@@ -125,6 +137,11 @@ def cmd_delete(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print what would be removed; do not touch files or git",
     )
+    parser.add_argument(
+        "--also-obsidian",
+        action="store_true",
+        help="Also remove the mirrored Obsidian archive note and Daily Note embed",
+    )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -145,7 +162,9 @@ def cmd_delete(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        outcome = delete_day(cfg, target, dry_run=args.dry_run)
+        outcome = delete_day(
+            cfg, target, dry_run=args.dry_run, also_obsidian=args.also_obsidian
+        )
     except FileNotFoundError as exc:
         print(str(exc))
         return 2
@@ -157,4 +176,12 @@ def cmd_delete(argv: list[str] | None = None) -> int:
         print(outcome)
     else:
         print(f"{outcome.get('status')}: {outcome.get('date')}")
+        obsidian = outcome.get("obsidian") or {}
+        status = obsidian.get("status")
+        if status == "removed":
+            print(f"obsidian: removed {obsidian.get('archive', '')}".rstrip())
+        elif status == "error":
+            print(f"[warn] Obsidian vault note was not removed: {obsidian.get('error')}")
+        elif status == "vault_missing":
+            print(f"[warn] Obsidian vault missing; left notes untouched: {obsidian.get('vault')}")
     return 0

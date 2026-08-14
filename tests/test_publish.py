@@ -18,7 +18,9 @@ def test_save_and_load_config(tmp_path: Path):
     loaded = load_config(path)
     assert loaded is not None
     assert loaded.publish_mode == "manual"
-    assert loaded.sources == ["claude_code", "codex", "cursor"]
+    from devlog.config import DEFAULT_SOURCES
+
+    assert loaded.sources == list(DEFAULT_SOURCES)
 
 
 def test_init_defaults(tmp_path: Path, monkeypatch):
@@ -31,6 +33,14 @@ def test_init_defaults(tmp_path: Path, monkeypatch):
         "devlog.init_cmd.write_publish_now_shortcut",
         lambda cfg, **kwargs: tmp_path / "Publish Devlog Now.cmd",
     )
+    monkeypatch.setattr(
+        "devlog.obsidian.obsidian_app_config_path",
+        lambda: tmp_path / "no-obsidian.json",
+    )
+    monkeypatch.setattr(
+        "devlog.obsidian.default_new_vault_path",
+        lambda: tmp_path / "Documents" / "DevLog",
+    )
 
     cfg_path = tmp_path / "devlog" / "config.toml"
     code = cmd_init(["--defaults", "--no-schedule", "--config", str(cfg_path)])
@@ -40,6 +50,7 @@ def test_init_defaults(tmp_path: Path, monkeypatch):
     assert loaded is not None
     # Privacy-safe default: posts can contain raw prompts, so no auto-publish.
     assert loaded.publish_mode == "manual"
+    assert loaded.obsidian_vault == str(tmp_path / "Documents" / "DevLog").replace("\\", "/")
 
 
 def test_config_windows_paths_roundtrip(tmp_path: Path):
@@ -57,8 +68,36 @@ def test_config_windows_paths_roundtrip(tmp_path: Path):
     loaded = load_config(path)
     assert loaded is not None
     assert loaded.claude_root == "C:/Users/shibi/.claude"
+    assert loaded.grok_root == "~/.grok"
+    assert loaded.copilot_root == "~/.copilot"
     assert loaded.repo_path == "C:/Users/shibi/Projects/devlog"
     assert loaded.allow_external_api is True
+
+
+def test_old_config_without_new_source_keys_loads(tmp_path: Path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        'sources = ["claude_code", "codex", "cursor"]\n'
+        'claude_root = "~/.claude"\n'
+        'codex_root = "~/.codex"\n'
+        'cursor_root = "~/.cursor"\n'
+        'repo_path = "C:/tmp/devlog"\n'
+        'publish_mode = "manual"\n'
+        'schedule_time = "06:30"\n'
+        'remote = "origin"\n'
+        'branch = "main"\n'
+        'model = "claude-sonnet-5"\n'
+        "allow_external_api = false\n",
+        encoding="utf-8",
+    )
+    loaded = load_config(path)
+    assert loaded is not None
+    assert loaded.grok_root == "~/.grok"
+    assert loaded.copilot_root == "~/.copilot"
+    assert loaded.vitreous_root == "~/.vitreous"
+    assert loaded.antigravity_root == "~/.gemini"
+    assert loaded.root_for("grok") == Path("~/.grok").expanduser()
+    assert loaded.root_for("copilot") == Path("~/.copilot").expanduser()
 
 
 def test_config_rejects_bad_schedule_time(tmp_path: Path):

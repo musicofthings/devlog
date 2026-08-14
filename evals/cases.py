@@ -10,7 +10,9 @@ from zoneinfo import ZoneInfo
 from devlog.digest import slice_for_date
 from devlog.sources.claude_code import ClaudeCodeParser
 from devlog.sources.codex import CodexParser
+from devlog.sources.copilot import CopilotParser
 from devlog.sources.cursor import CursorParser
+from devlog.sources.grok import GrokParser
 from devlog.summarize import generate_post, summarize_with_template
 from evals.rubric import (
     EvalResult,
@@ -24,6 +26,8 @@ from evals.rubric import (
 SAMPLE_ROOT = Path(__file__).resolve().parents[1] / "sample_data" / "claude_code"
 CODEX_ROOT = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
 CURSOR_ROOT = Path(__file__).resolve().parents[1] / "sample_data" / "cursor"
+GROK_ROOT = Path(__file__).resolve().parents[1] / "sample_data" / "grok"
+COPILOT_ROOT = Path(__file__).resolve().parents[1] / "sample_data" / "copilot"
 # Fixture timestamps are UTC; use a fixed TZ so local-machine TZ doesn't flap results.
 EVAL_TZ = ZoneInfo("UTC")
 
@@ -43,6 +47,8 @@ CASES: list[CaseSpec] = [
     CaseSpec("codex_2026_07_20", "Codex rollout cwd + tools grounded in template post"),
     CaseSpec("cursor_2026_07_20", "Cursor agent-transcript path decode + tools"),
     CaseSpec("multi_source_2026_07_20", "Codex+Cursor same day merge into one post"),
+    CaseSpec("grok_2026_07_20", "Grok CLI session cwd + tools grounded in template post"),
+    CaseSpec("copilot_2026_07_20", "Copilot CLI session cwd + tools grounded in template post"),
 ]
 
 
@@ -200,6 +206,46 @@ def run_multi_source_2026_07_20() -> EvalResult:
     return result
 
 
+def run_grok_2026_07_20() -> EvalResult:
+    result = EvalResult("grok_2026_07_20")
+    raw = GrokParser().iter_sessions(GROK_ROOT)
+    digests = slice_for_date(raw, date(2026, 7, 20), EVAL_TZ)
+    result.add("has_grok_session", len(digests) >= 1, f"n={len(digests)}")
+    result.add(
+        "source_is_grok",
+        all(d.source == "grok" for d in digests),
+        ",".join(sorted({d.source for d in digests})) or "none",
+    )
+    paths = {d.project_path.replace("\\", "/") for d in digests}
+    result.add("cwd_devlog", any("devlog" in p.lower() for p in paths), str(paths))
+    post = summarize_with_template(digests)
+    for c in check_groundedness(post, digests, required_substrings=["devlog"]):
+        result.checks.append(c)
+    for c in check_style(post):
+        result.checks.append(c)
+    return result
+
+
+def run_copilot_2026_07_20() -> EvalResult:
+    result = EvalResult("copilot_2026_07_20")
+    raw = CopilotParser().iter_sessions(COPILOT_ROOT)
+    digests = slice_for_date(raw, date(2026, 7, 20), EVAL_TZ)
+    result.add("has_copilot_session", len(digests) >= 1, f"n={len(digests)}")
+    result.add(
+        "source_is_copilot",
+        all(d.source == "copilot" for d in digests),
+        ",".join(sorted({d.source for d in digests})) or "none",
+    )
+    paths = {d.project_path.replace("\\", "/") for d in digests}
+    result.add("cwd_vitreous", any("vitreous" in p.lower() for p in paths), str(paths))
+    post = summarize_with_template(digests)
+    for c in check_groundedness(post, digests, required_substrings=["vitreous"]):
+        result.checks.append(c)
+    for c in check_style(post):
+        result.checks.append(c)
+    return result
+
+
 RUNNERS = {
     "e2e_2026_07_22_template": lambda live=False: run_e2e_2026_07_22_template(live=live),
     "cwd_path_2026_07_23": lambda live=False: run_cwd_path_2026_07_23(),
@@ -209,6 +255,8 @@ RUNNERS = {
     "codex_2026_07_20": lambda live=False: run_codex_2026_07_20(),
     "cursor_2026_07_20": lambda live=False: run_cursor_2026_07_20(),
     "multi_source_2026_07_20": lambda live=False: run_multi_source_2026_07_20(),
+    "grok_2026_07_20": lambda live=False: run_grok_2026_07_20(),
+    "copilot_2026_07_20": lambda live=False: run_copilot_2026_07_20(),
 }
 
 

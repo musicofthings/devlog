@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-20T15:00:00Z","type":"user","content":"Persist vitreous transcripts when the desktop ships that"}
+{"timestamp":"2026-07-20T15:00:05Z","type":"assistant","tool_name":"Read","path":"C:/Users/dev/code/vitreous/src/session.ts"}
+{"timestamp":"2026-07-20T15:00:08Z","type":"assistant","tool_name":"Shell","command":"pytest -q"}
+NOT JSON
+{"timestamp":"2026-07-20T15:10:00Z","type":"user","content":"Keep nvidia-skills cache out of the parser"}

@@ -78,8 +78,10 @@ def test_bad_date_exits_2(capsys):
     assert "Invalid --date" in capsys.readouterr().out
 
 
-def test_default_sources_include_all_three():
-    assert DEFAULT_SOURCES == ["claude_code", "codex", "cursor"]
+def test_default_sources_include_new_plugins():
+    assert DEFAULT_SOURCES[:5] == ["claude_code", "codex", "cursor", "grok", "copilot"]
+    for name in ("opencode", "warp", "vitreous", "antigravity"):
+        assert name in DEFAULT_SOURCES
 
 
 def test_missing_root_skips_source_continues(tmp_path: Path, monkeypatch, capsys):
@@ -130,6 +132,34 @@ def test_multi_source_roots(tmp_path: Path, monkeypatch, capsys):
     assert "session" in out.lower() or "Daily post" in out
 
 
+def test_new_source_flags_and_missing_roots(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    root = Path(__file__).resolve().parents[1] / "sample_data"
+    missing = tmp_path / "no-warp"
+    code = main(
+        [
+            "--date",
+            "2026-07-20",
+            "--sources",
+            "grok,copilot,warp",
+            "--grok-root",
+            str(root / "grok"),
+            "--copilot-root",
+            str(root / "copilot"),
+            "--warp-root",
+            str(missing),
+            "--dry-run",
+            "--verbose",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "[grok] found" in out
+    assert "[copilot] found" in out
+    assert "[warp] no data root" in out
+    assert "Daily post" in out
+
+
 def test_main_dispatches_delete_subcommand(monkeypatch):
     import devlog.delete_cmd
 
@@ -164,3 +194,16 @@ def test_main_dispatches_hide_and_unhide(monkeypatch):
     assert main(["unhide", "--date", "2026-07-20", "--dry-run"]) == 0
     assert hide_calls == [["--date", "2026-07-20"]]
     assert unhide_calls == [["--date", "2026-07-20", "--dry-run"]]
+
+
+def test_main_dispatches_obsidian(monkeypatch):
+    import devlog.obsidian
+
+    calls = []
+
+    monkeypatch.setattr(
+        devlog.obsidian, "cmd_obsidian", lambda argv: calls.append(argv) or 0
+    )
+
+    assert main(["obsidian", "--backfill", "--dry-run"]) == 0
+    assert calls == [["--backfill", "--dry-run"]]

@@ -2,13 +2,28 @@
 
 from __future__ import annotations
 
+import os
 import re
 import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 PUBLISH_MODES = ("auto", "pr", "manual", "review")
-DEFAULT_SOURCES = ["claude_code", "codex", "cursor"]
+OBSIDIAN_ON_DELETE = ("preserve", "remove")
+DEFAULT_SOURCES = [
+    "claude_code",
+    "codex",
+    "cursor",
+    "grok",
+    "copilot",
+    "opencode",
+    "warp",
+    "vitreous",
+    "antigravity",
+]
+DEFAULT_OBSIDIAN_FOLDER = "DevLog"
+DEFAULT_OBSIDIAN_DAILY_FOLDER = "Daily"
+DEFAULT_OBSIDIAN_ON_DELETE = "preserve"
 # "manual" by default: posts can contain raw user prompts, so a human should
 # review before anything is pushed to a public site.
 DEFAULT_PUBLISH_MODE = "manual"
@@ -26,6 +41,34 @@ def _norm_path(value: str) -> str:
     return value.replace("\\", "/")
 
 
+def default_opencode_root() -> str:
+    """Data dir that contains opencode.db when present; else the usual OS default."""
+    candidates: list[Path] = []
+    localapp = os.environ.get("LOCALAPPDATA")
+    appdata = os.environ.get("APPDATA")
+    if localapp:
+        candidates.append(Path(localapp) / "opencode")
+    if appdata:
+        candidates.append(Path(appdata) / "opencode")
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        candidates.append(Path(xdg) / "opencode")
+    candidates.append(Path.home() / ".local" / "share" / "opencode")
+    for cand in candidates:
+        if (cand / "opencode.db").exists():
+            return _norm_path(str(cand))
+    if os.name == "nt" and localapp:
+        return _norm_path(str(Path(localapp) / "opencode"))
+    return "~/.local/share/opencode"
+
+
+def default_warp_root() -> str:
+    localapp = os.environ.get("LOCALAPPDATA")
+    if localapp:
+        return _norm_path(str(Path(localapp) / "warp" / "Warp"))
+    return _norm_path(str(Path.home() / ".local" / "share" / "warp" / "Warp"))
+
+
 def default_config_path() -> Path:
     return Path.home() / ".config" / "devlog" / "config.toml"
 
@@ -41,6 +84,12 @@ class DevlogConfig:
     claude_root: str = "~/.claude"
     codex_root: str = "~/.codex"
     cursor_root: str = "~/.cursor"
+    grok_root: str = "~/.grok"
+    copilot_root: str = "~/.copilot"
+    opencode_root: str = field(default_factory=default_opencode_root)
+    warp_root: str = field(default_factory=default_warp_root)
+    vitreous_root: str = "~/.vitreous"
+    antigravity_root: str = "~/.gemini"
     repo_path: str = field(default_factory=lambda: str(default_repo_path()).replace("\\", "/"))
     publish_mode: str = DEFAULT_PUBLISH_MODE
     schedule_time: str = "06:30"
@@ -48,18 +97,37 @@ class DevlogConfig:
     branch: str = "main"
     model: str = DEFAULT_MODEL
     allow_external_api: bool = False
+    obsidian_vault: str = ""
+    obsidian_folder: str = DEFAULT_OBSIDIAN_FOLDER
+    obsidian_daily_folder: str = DEFAULT_OBSIDIAN_DAILY_FOLDER
+    obsidian_on_delete: str = DEFAULT_OBSIDIAN_ON_DELETE
 
     def __post_init__(self) -> None:
         self.claude_root = _norm_path(self.claude_root)
         self.codex_root = _norm_path(self.codex_root)
         self.cursor_root = _norm_path(self.cursor_root)
+        self.grok_root = _norm_path(self.grok_root)
+        self.copilot_root = _norm_path(self.copilot_root)
+        self.opencode_root = _norm_path(self.opencode_root)
+        self.warp_root = _norm_path(self.warp_root)
+        self.vitreous_root = _norm_path(self.vitreous_root)
+        self.antigravity_root = _norm_path(self.antigravity_root)
         self.repo_path = _norm_path(self.repo_path)
+        self.obsidian_vault = _norm_path(self.obsidian_vault)
+        self.obsidian_folder = _norm_path(self.obsidian_folder)
+        self.obsidian_daily_folder = _norm_path(self.obsidian_daily_folder)
 
     def root_for(self, source: str) -> Path:
         mapping = {
             "claude_code": self.claude_root,
             "codex": self.codex_root,
             "cursor": self.cursor_root,
+            "grok": self.grok_root,
+            "copilot": self.copilot_root,
+            "opencode": self.opencode_root,
+            "warp": self.warp_root,
+            "vitreous": self.vitreous_root,
+            "antigravity": self.antigravity_root,
         }
         return Path(mapping.get(source, self.claude_root)).expanduser()
 
@@ -76,6 +144,11 @@ class DevlogConfig:
             )
         if not isinstance(self.allow_external_api, bool):
             raise ValueError("allow_external_api must be true or false")
+        if self.obsidian_on_delete not in OBSIDIAN_ON_DELETE:
+            raise ValueError(
+                f"obsidian_on_delete must be one of {', '.join(OBSIDIAN_ON_DELETE)}; "
+                f"got {self.obsidian_on_delete!r}"
+            )
 
 
 def load_config(path: Path | None = None) -> DevlogConfig | None:
@@ -89,6 +162,12 @@ def load_config(path: Path | None = None) -> DevlogConfig | None:
         claude_root=str(data.get("claude_root", "~/.claude")),
         codex_root=str(data.get("codex_root", "~/.codex")),
         cursor_root=str(data.get("cursor_root", "~/.cursor")),
+        grok_root=str(data.get("grok_root", "~/.grok")),
+        copilot_root=str(data.get("copilot_root", "~/.copilot")),
+        opencode_root=str(data.get("opencode_root", default_opencode_root())),
+        warp_root=str(data.get("warp_root", default_warp_root())),
+        vitreous_root=str(data.get("vitreous_root", "~/.vitreous")),
+        antigravity_root=str(data.get("antigravity_root", "~/.gemini")),
         repo_path=str(data.get("repo_path", default_repo_path())),
         publish_mode=str(data.get("publish_mode", DEFAULT_PUBLISH_MODE)),
         schedule_time=str(data.get("schedule_time", "06:30")),
@@ -96,6 +175,14 @@ def load_config(path: Path | None = None) -> DevlogConfig | None:
         branch=str(data.get("branch", "main")),
         model=str(data.get("model", DEFAULT_MODEL)),
         allow_external_api=data.get("allow_external_api", False),
+        obsidian_vault=str(data.get("obsidian_vault", "")),
+        obsidian_folder=str(data.get("obsidian_folder", DEFAULT_OBSIDIAN_FOLDER)),
+        obsidian_daily_folder=str(
+            data.get("obsidian_daily_folder", DEFAULT_OBSIDIAN_DAILY_FOLDER)
+        ),
+        obsidian_on_delete=str(
+            data.get("obsidian_on_delete", DEFAULT_OBSIDIAN_ON_DELETE)
+        ),
     )
     cfg.validate()
     return cfg
@@ -116,6 +203,12 @@ def save_config(cfg: DevlogConfig, path: Path | None = None) -> Path:
         f"claude_root = {_toml_str(cfg.claude_root)}\n"
         f"codex_root = {_toml_str(cfg.codex_root)}\n"
         f"cursor_root = {_toml_str(cfg.cursor_root)}\n"
+        f"grok_root = {_toml_str(cfg.grok_root)}\n"
+        f"copilot_root = {_toml_str(cfg.copilot_root)}\n"
+        f"opencode_root = {_toml_str(cfg.opencode_root)}\n"
+        f"warp_root = {_toml_str(cfg.warp_root)}\n"
+        f"vitreous_root = {_toml_str(cfg.vitreous_root)}\n"
+        f"antigravity_root = {_toml_str(cfg.antigravity_root)}\n"
         f"repo_path = {_toml_str(cfg.repo_path)}\n"
         f"publish_mode = {_toml_str(cfg.publish_mode)}\n"
         f"schedule_time = {_toml_str(cfg.schedule_time)}\n"
@@ -123,6 +216,10 @@ def save_config(cfg: DevlogConfig, path: Path | None = None) -> Path:
         f"branch = {_toml_str(cfg.branch)}\n"
         f"model = {_toml_str(cfg.model)}\n"
         f"allow_external_api = {'true' if cfg.allow_external_api else 'false'}\n"
+        f"obsidian_vault = {_toml_str(cfg.obsidian_vault)}\n"
+        f"obsidian_folder = {_toml_str(cfg.obsidian_folder)}\n"
+        f"obsidian_daily_folder = {_toml_str(cfg.obsidian_daily_folder)}\n"
+        f"obsidian_on_delete = {_toml_str(cfg.obsidian_on_delete)}\n"
     )
     cfg_path.write_text(body, encoding="utf-8")
     return cfg_path
