@@ -22,19 +22,24 @@ Transcripts never leave your machine unless you explicitly allow the (redacted) 
 | **Tokens and cost** | Tokens per model, and an API-equivalent cost estimate per day, project, and period. |
 | **Local-first extras** | Optional [Ollama](https://ollama.com) models for semantic related days, period retros, and writing the post itself. None of it leaves your machine. |
 | **Explainable** | `devlog publish --dry-run --explain` shows exactly which sources, names, settings, and writer shaped the day's post. |
-| **Agent memory** | `devlog mcp` lets Claude Code or Codex ask "what did I do on this project, and what's still open?" |
+| **Agent memory** | `devlog mcp` lets Claude Code or Codex ask "what did I do on this project, and what's still open?" — and, if you opt in, tick off threads and record notes and decisions. |
 | **Safe automation** | A nightly Windows scheduled task; `review`/`pr`/`manual` publish modes; rollback that never discards your uncommitted work; hide or delete a post from the live site. |
 
 ## Install
 
-Requires Python 3.11+.
+Requires Python 3.11+. The package is `daily-devlog` (the name `devlog` was taken on PyPI); the command is still `devlog`.
 
 ```bash
-pip install -e ".[dev]"          # add ,mcp for the agent-memory server: ".[dev,mcp]"
-devlog init                      # config, Obsidian vault detection, nightly schedule
+pipx install "daily-devlog[mcp]"   # once released; [mcp] adds the agent-memory server
+# or from a clone:
+pip install -e ".[dev,mcp]"
+devlog init                        # config, Obsidian vault detection, nightly schedule
+devlog doctor                      # what's set up, what's missing, and how to fix it
 ```
 
-This installs a `devlog` command: `devlog run` (the default), `init`, `publish`, `hide`, `unhide`, `delete`, `obsidian`, `audit`, `deck`, and `mcp`. Everything below also works as `python main.py …`, which needs no install step.
+This installs a `devlog` command: `devlog run` (the default), `init`, `publish`, `hide`, `unhide`, `delete`, `obsidian`, `audit`, `deck`, `doctor`, and `mcp` (plus `devlog --version`). Everything below also works as `python main.py …`, which needs no install step.
+
+`devlog doctor` checks the config, which log sources have data, the site repository (remote, git identity, last publish, and an audit of the published posts), the GitHub CLI, the vault and its index, Ollama and Zotero when you use them, the MCP extra, and the nightly scheduled task. Problems exit 1, each with the command that fixes it. See [CHANGELOG.md](CHANGELOG.md) for what changed in each release.
 
 ## Use
 
@@ -124,6 +129,8 @@ devlog publish                  # uses publish_mode from config: auto | pr | man
 devlog publish --date 2026-07-20 --force
 devlog publish --confirm --date 2026-07-20   # push an already-written review-mode post
 ```
+
+The rebuilt log (`docs/log/`) has a search box that filters every post as you type (it also takes `?q=` links, e.g. `log/?q=nextflow`) and an RSS feed at `log/feed.xml` with the latest 30 visible posts. Feed links use your GitHub Pages address, or `docs/CNAME` if you set a custom domain; hidden posts are left out of both.
 
 Publishing always runs locally — your session transcripts never leave this machine, so there's no "publish" button on the website. To publish on demand instead of waiting for the nightly schedule, either run `devlog publish` yourself, or double-click the `Publish Devlog Now.cmd` shortcut `devlog init` writes to your Desktop (opens a window, shows the result, waits for a keypress so you actually see it).
 
@@ -309,6 +316,18 @@ codex mcp add devlog -- devlog mcp       # Codex CLI
 ```
 
 Tools: `list_projects`, `recent_activity(days, project)`, `project_status(project)`, `open_threads(project)`, `search_log(query)`, `day_log(date)`. The index is reread on every call, so a long-running server sees each night's publish.
+
+The server is read-only unless you opt in to three write tools:
+
+```toml
+mcp_write = true
+```
+
+- `close_thread(thread, project)` ticks an open thread's checkbox in its day note and project hub — the same thing as clicking it — so it's recorded as done on the next refresh. An ambiguous match lists the candidates instead of guessing.
+- `add_note(text, date, project)` appends a timestamped `(agent)` bullet to the *Notes* section of a day note (default today) or a project hub.
+- `log_decision(project, title, decision, why)` appends a dated `[!decision]` callout to the hub's *Decisions* section.
+
+Notes and decisions go below `%% devlog:end %%`, the part regeneration never touches. Agent text is length-capped and can't open Obsidian comments or fake devlog markers, and every write is logged to `DevLog/.devlog/agent-writes.jsonl`.
 
 **Your notes are safe.** Every generated note is a managed block ending in `%% devlog:end %%`; anything you write below that line (in day notes, hubs, weeklies, Home) is preserved on every refresh. Hubs with no remaining days are deleted only if you never wrote in them. A day note you delete by hand in Obsidian is not recreated. Per-day metadata lives in `DevLog/.devlog/index.json` (hidden from Obsidian); hubs are regenerated from it and only changed files are rewritten.
 

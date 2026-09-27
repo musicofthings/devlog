@@ -8,7 +8,7 @@ import os
 import re
 import secrets
 import sys
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 from devlog.config import DevlogConfig, default_config_path, load_config
@@ -227,11 +227,11 @@ def upsert_daily_region(existing: str, day: date, wikilink: str) -> str:
         return f"# {day.isoformat()}\n\n{block}\n"
     matches = list(_REGION_RE.finditer(text))
     if matches:
-        for match in reversed(matches[1:]):
-            text = text[: match.start()] + text[match.end() :]
-        match = _REGION_RE.search(text)
-        assert match is not None
-        text = text[: match.start()] + block + text[match.end() :]
+        for extra in reversed(matches[1:]):
+            text = text[: extra.start()] + text[extra.end() :]
+        region = _REGION_RE.search(text)
+        assert region is not None
+        text = text[: region.start()] + block + text[region.end() :]
         return text.rstrip() + "\n"
     return text.rstrip() + f"\n\n{block}\n"
 
@@ -521,11 +521,11 @@ def _format_refresh(outcome: dict) -> str:
 
 def _rescan(cfg: DevlogConfig) -> dict[date, list[SessionDigest]]:
     """Read every source once and slice it per day (one pass, not one per post)."""
-    from devlog.digest import slice_for_date
+    from devlog.digest import local_tz, slice_for_date
     from devlog.publish import collect_raw_sessions
 
     raw = collect_raw_sessions(cfg)
-    tz = datetime.now().astimezone().tzinfo
+    tz = local_tz()
     days = {
         event.timestamp.astimezone(tz).date()
         for session in raw

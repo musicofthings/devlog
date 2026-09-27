@@ -43,7 +43,7 @@ def normalize_model(model: str) -> str:
 def price_table(overrides: dict[str, list[float]] | None = None) -> dict[str, tuple]:
     table = dict(DEFAULT_PRICES)
     for model, rates in (overrides or {}).items():
-        table[normalize_model(model)] = tuple(float(r) for r in rates)
+        table[normalize_model(model)] = (float(rates[0]), float(rates[1]), float(rates[2]))
     return table
 
 

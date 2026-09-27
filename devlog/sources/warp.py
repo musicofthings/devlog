@@ -87,7 +87,7 @@ def _events_from_conversation_data(
     parsed = _load_json(data)
     if parsed is None:
         return []
-    messages = []
+    messages: list = []
     if isinstance(parsed, dict):
         messages = parsed.get("messages") or parsed.get("exchanges") or []
     elif isinstance(parsed, list):

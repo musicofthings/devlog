@@ -168,7 +168,7 @@ def parse_session_dir(session_dir: Path) -> RawSession | None:
         return None
 
     summary = _load_summary(session_dir / "summary.json")
-    info = summary.get("info") if isinstance(summary.get("info"), dict) else {}
+    info = summary["info"] if isinstance(summary.get("info"), dict) else {}
     session_id = session_dir.name
     sid = info.get("id") or summary.get("id")
     if isinstance(sid, str) and sid:
@@ -187,6 +187,7 @@ def parse_session_dir(session_dir: Path) -> RawSession | None:
     timestamps: list[datetime] = []
     events: list[SessionEvent] = []
     user_i = 0
+    ts: datetime | None
 
     try:
         fh = chat.open(encoding="utf-8")

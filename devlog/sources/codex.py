@@ -41,7 +41,7 @@ def _parse_timestamp(ts: object) -> datetime:
 
 def _as_int(value: object) -> int:
     try:
-        return int(value or 0)
+        return int(value or 0)  # type: ignore[call-overload]
     except (TypeError, ValueError):
         return 0
 

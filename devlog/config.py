@@ -122,6 +122,8 @@ class DevlogConfig:
     pipeline_dirs: list[str] = field(default_factory=list)
     # Better BibTeX JSON-RPC endpoint for citekey lookups; "" turns lookups off.
     zotero_url: str = "http://localhost:23119/better-bibtex/json-rpc"
+    # Let `devlog mcp` agents tick threads and append notes/decisions (vault only).
+    mcp_write: bool = False
     # False: days without activity are mirrored to the vault but not published.
     publish_empty_days: bool = False
     # USD per million tokens [input, output, cache_read]; adds to/overrides the
@@ -232,6 +234,8 @@ class DevlogConfig:
             raise ValueError(
                 f"post_writer must be one of {', '.join(POST_WRITERS)}; got {self.post_writer!r}"
             )
+        if not isinstance(self.mcp_write, bool):
+            raise ValueError("mcp_write must be true or false")
         if not isinstance(self.period_retros, bool):
             raise ValueError("period_retros must be true or false")
         if not isinstance(self.model_prices, dict) or not all(
@@ -259,10 +263,10 @@ def load_config(path: Path | None = None) -> DevlogConfig | None:
     cfg_path = path or default_config_path()
     if not cfg_path.exists():
         return None
-    with cfg_path.open("rb") as f:
-        data = tomllib.load(f)
+    with cfg_path.open("rb") as fh:
+        data = tomllib.load(fh)
     types = _field_types()
-    kwargs: dict[str, object] = {}
+    kwargs: dict[str, typing.Any] = {}
     for f in fields(DevlogConfig):
         if f.name not in data:
             continue

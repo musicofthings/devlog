@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from devlog.config import DEFAULT_SOURCES, DevlogConfig, load_config
-from devlog.digest import name_projects, slice_for_date
+from devlog.digest import local_tz, name_projects, slice_for_date
 from devlog.models import RawSession
 from devlog.privacy import configure_redaction
 from devlog.projects import ProjectResolver, count_commits
@@ -84,7 +84,7 @@ def cmd_run(argv: list[str] | None = None) -> int:
     args = build_run_parser().parse_args(argv)
 
     now = datetime.now().astimezone()
-    tz = now.tzinfo
+    tz = local_tz()
     if args.date == "today":
         target_date = now.date()
     else:
@@ -178,6 +178,15 @@ def main(argv: list[str] | None = None) -> int:
         from devlog.obsidian import cmd_obsidian
 
         return cmd_obsidian(argv[1:])
+    if argv and argv[0] in {"--version", "version"}:
+        from devlog import __version__
+
+        print(f"devlog {__version__}")
+        return 0
+    if argv and argv[0] == "doctor":
+        from devlog.doctor import cmd_doctor
+
+        return cmd_doctor(argv[1:])
     if argv and argv[0] == "deck":
         from devlog.deck import cmd_deck
 

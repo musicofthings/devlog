@@ -5,7 +5,8 @@ from __future__ import annotations
 import html
 import json
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+from email.utils import format_datetime
 from importlib import resources
 from pathlib import Path
 
@@ -103,6 +104,90 @@ def detect_github_repo(repo_path: Path, git_run: GitRunner = default_git) -> str
     if not match:
         return None
     return f"{match.group('owner')}/{match.group('repo')}"
+
+
+FEED_ITEMS = 30
+
+SEARCH_HTML = """<div class="search" role="search">
+  <input type="search" id="log-search" placeholder="Search the log" aria-label="Search the log" />
+  <p class="meta" id="log-search-count" aria-live="polite"></p>
+</div>
+"""
+
+SEARCH_JS = """<script>
+(function () {
+  var box = document.getElementById("log-search");
+  var count = document.getElementById("log-search-count");
+  var items = Array.prototype.slice.call(document.querySelectorAll(".feed li[data-text]"));
+  if (!box || !items.length) return;
+  function run() {
+    var terms = box.value.toLowerCase().split(/\\s+/).filter(Boolean);
+    var shown = 0;
+    items.forEach(function (li) {
+      var text = li.getAttribute("data-text");
+      var hit = terms.every(function (t) { return text.indexOf(t) !== -1; });
+      li.hidden = !hit;
+      if (hit) shown += 1;
+    });
+    count.textContent = terms.length ? shown + " of " + items.length : "";
+  }
+  box.addEventListener("input", run);
+  var q = new URLSearchParams(location.search).get("q");
+  if (q) { box.value = q; run(); }
+})();
+</script>
+"""
+
+
+def site_base_url(repo_path: Path, github_repo: str | None) -> str | None:
+    """Public root of the site: docs/CNAME if present, else the GitHub Pages URL."""
+    cname = Path(repo_path) / "docs" / "CNAME"
+    if cname.is_file():
+        domain = cname.read_text(encoding="utf-8").strip().splitlines()
+        if domain and domain[0].strip():
+            return f"https://{domain[0].strip().rstrip('/')}/"
+    if not github_repo:
+        return None
+    owner, repo = github_repo.split("/", 1)
+    if repo.lower() == f"{owner.lower()}.github.io":
+        return f"https://{owner.lower()}.github.io/"
+    return f"https://{owner.lower()}.github.io/{repo}/"
+
+
+def build_rss(posts: list[tuple[date, Path, str]], base_url: str) -> str:
+    """RSS 2.0 for the latest visible posts; links point at docs/log/<date>.html."""
+    log_url = f"{base_url}log/"
+    items = []
+    for day, _path, body in posts[:FEED_ITEMS]:
+        link = f"{log_url}{day.isoformat()}.html"
+        published = format_datetime(datetime(day.year, day.month, day.day, 23, 0,
+                                             tzinfo=UTC))
+        items.append(
+            "    <item>\n"
+            f"      <title>{html.escape(day.isoformat())}</title>\n"
+            f"      <link>{html.escape(link)}</link>\n"
+            f'      <guid isPermaLink="true">{html.escape(link)}</guid>\n'
+            f"      <pubDate>{published}</pubDate>\n"
+            f"      <description>{html.escape(_post_plain(body))}</description>\n"
+            "    </item>"
+        )
+    newest = posts[0][0] if posts else date.today()
+    built = format_datetime(datetime(newest.year, newest.month, newest.day, 23, 0,
+                                     tzinfo=UTC))
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n'
+        "  <channel>\n"
+        "    <title>Daily Dev Log</title>\n"
+        f"    <link>{html.escape(log_url)}</link>\n"
+        f'    <atom:link href="{html.escape(log_url)}feed.xml" rel="self" '
+        'type="application/rss+xml" />\n'
+        "    <description>Daily build log from AI coding sessions</description>\n"
+        "    <language>en</language>\n"
+        f"    <lastBuildDate>{built}</lastBuildDate>\n"
+        + ("\n".join(items) + "\n" if items else "")
+        + "  </channel>\n</rss>\n"
+    )
 
 
 def _post_plain(body: str) -> str:
@@ -236,8 +321,9 @@ def build_feed_html(
                     f'<button type="button" class="hide-btn" data-date="{iso}">Hide</button>'
                     f'<button type="button" class="delete-btn" data-date="{iso}">Delete</button>'
                 )
+            searchable = f"{iso} {_post_plain(body)}".lower()
             chunks.append(
-                "<li>"
+                f'<li data-text="{html.escape(" ".join(searchable.split()))}">'
                 f'<a href="{href}">{html.escape(iso)}</a>'
                 f"{manage_btns}"
                 f'<p class="excerpt">{html.escape(_excerpt(body))}</p>'
@@ -254,13 +340,14 @@ def build_feed_html(
     status_html = (
         f'<p class="meta status-line">{html.escape(status_line)}</p>' if status_line else ""
     )
+    search = SEARCH_HTML if posts else ""
     inner = f"""<h1>Log</h1>
-<p class="meta">Reverse-chronological daily build logs</p>
+<p class="meta">Reverse-chronological daily build logs · <a href="feed.xml">RSS</a></p>
 {status_html}
-<ul class="feed">
+{search}<ul class="feed">
 {items}
 </ul>
-{admin_html}
+{SEARCH_JS if posts else ""}{admin_html}
 {admin_css}
 """
     return _page("Log", inner)
@@ -321,6 +408,12 @@ def rebuild_site(
         day_path = log_dir / name
         day_path.write_text(build_day_html(day, body), encoding="utf-8")
         written.append(day_path)
+
+    base_url = site_base_url(repo_path, github_repo)
+    if base_url:
+        rss_path = log_dir / "feed.xml"
+        rss_path.write_text(build_rss(visible, base_url), encoding="utf-8")
+        written.append(rss_path)
 
     for stale in existing - keep:
         stale_path = log_dir / stale

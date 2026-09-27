@@ -4,25 +4,57 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "devlog"
-version = "0.1.0"
-description = "Daily build-log posts from AI coding tool session transcripts"
+# "devlog" is taken on PyPI; the command and the import are still `devlog`.
+name = "daily-devlog"
+dynamic = ["version"]
+description = "Turn AI coding session logs into a public daily build log and a private Obsidian second brain"
+readme = "README.md"
 requires-python = ">=3.11"
+authors = [{ name = "musicofthings" }]
+keywords = [
+  "devlog", "obsidian", "claude-code", "codex", "cursor", "mcp", "second-brain",
+  "bioinformatics", "nextflow", "zotero",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development",
+  "Topic :: Text Processing :: Markup :: Markdown",
+]
 dependencies = [
   "anthropic>=0.40.0",
   "tzdata; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.8.0"]
+dev = ["pytest>=8.0", "ruff>=0.8.0", "mypy>=1.10", "build>=1.2", "twine>=5.0"]
 mcp = ["mcp>=2.2,<3"]
+
+[project.urls]
+Homepage = "https://musicofthings.github.io/devlog/"
+Source = "https://github.com/musicofthings/devlog"
+Changelog = "https://github.com/musicofthings/devlog/blob/main/CHANGELOG.md"
+Issues = "https://github.com/musicofthings/devlog/issues"
 
 [project.scripts]
 devlog = "devlog.cli:main"
-devlog-evals = "evals.run:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "devlog.__version__" }
 
 [tool.setuptools.packages.find]
-include = ["devlog*", "evals*"]
+# evals/ is repo-only tooling (python -m evals.run); a top-level "evals"
+# package in site-packages would collide with other projects.
+include = ["devlog*"]
 
 [tool.setuptools.package-data]
 devlog = ["templates/*"]
@@ -37,3 +69,16 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["devlog"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# Optional extras: the Claude writer and the MCP server import them lazily.
+module = ["anthropic", "anthropic.*", "mcp", "mcp.*"]
+ignore_missing_imports = true

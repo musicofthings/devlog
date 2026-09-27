@@ -118,7 +118,7 @@ def summarize_with_template(
         {project_label(s) for s in sessions}
     )
     total_minutes = total_active_minutes(sessions)
-    all_tools = {}
+    all_tools: dict[str, int] = {}
     for s in sessions:
         for k, v in s.tool_calls.items():
             redacted_tool = redact_sensitive_text(k)

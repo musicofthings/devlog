@@ -73,7 +73,7 @@ def _parse_timestamp(ts: object) -> datetime:
 
 def _as_int(value: object) -> int:
     try:
-        return int(value or 0)
+        return int(value or 0)  # type: ignore[call-overload]
     except (TypeError, ValueError):
         return 0
 
@@ -157,8 +157,8 @@ def parse_session_file(path: Path) -> RawSession | None:
 
                 content = msg.get("content", [])
                 if isinstance(content, list):
-                    said = [
-                        block.get("text")
+                    said: list[str] = [
+                        block["text"]
                         for block in content
                         if isinstance(block, dict)
                         and block.get("type") == "text"
