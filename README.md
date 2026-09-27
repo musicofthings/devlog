@@ -18,6 +18,7 @@ Transcripts never leave your machine unless you explicitly allow the (redacted) 
 | **What happened, not just how long** | Your commits that day, open threads captured from agent recaps (tick them off in Obsidian), related days, repo README and open PRs on each project hub. |
 | **Tokens and cost** | Tokens per model, and an API-equivalent cost estimate per day, project, and period. |
 | **Local-first extras** | Optional [Ollama](https://ollama.com) models for semantic related days, period retros, and writing the post itself. None of it leaves your machine. |
+| **Explainable** | `devlog publish --dry-run --explain` shows exactly which sources, names, settings, and writer shaped the day's post. |
 | **Agent memory** | `devlog mcp` lets Claude Code or Codex ask "what did I do on this project, and what's still open?" |
 | **Safe automation** | A nightly Windows scheduled task; `review`/`pr`/`manual` publish modes; rollback that never discards your uncommitted work; hide or delete a post from the live site. |
 
@@ -123,6 +124,12 @@ devlog publish --confirm --date 2026-07-20   # push an already-written review-mo
 
 Publishing always runs locally — your session transcripts never leave this machine, so there's no "publish" button on the website. To publish on demand instead of waiting for the nightly schedule, either run `devlog publish` yourself, or double-click the `Publish Devlog Now.cmd` shortcut `devlog init` writes to your Desktop (opens a window, shows the result, waits for a keypress so you actually see it).
 
+Wondering why a post says what it says? `--explain` prints which sources were scanned (and how many sessions each gave), how each project got its name (git remote, alias, home folder, folder name), how many commits were counted, which writer produced the text and why (or why it fell back to the template), and how many of your redaction patterns fired:
+
+```bash
+devlog publish --dry-run --explain
+```
+
 With `publish_mode = review`, the nightly job writes `posts/` + `docs/log/` but does not push. After you edit the markdown, run `devlog publish --confirm --date YYYY-MM-DD` to commit and push (same recovery as auto if push fails).
 
 ### Privacy: what reaches the public site
@@ -141,7 +148,14 @@ publish_empty_days = false
 
 Project names in posts come from the git remote and `project_aliases`, the same as in the vault. Sessions started in your home folder appear as `home`, not your username.
 
-The same level applies to the digest sent to the LLM when `allow_external_api` is on.
+The same level applies to the digest sent to any model that writes the post.
+
+Who writes the post is set by `post_writer`:
+- `"auto"` (default): the Claude API when `allow_external_api = true` and a key is set, otherwise the deterministic template.
+- `"template"`: always the template.
+- `"ollama"`: a local model (`ollama_model`), so no transcript-derived text leaves your machine even for a written-by-a-model post. If the model fails, the template is used instead.
+
+`public_detail = "summary"` always uses the template.
 
 `redact_patterns` are your own regexes. Matches become `[REDACTED]` everywhere redaction runs: posts, the LLM digest, and vault notes. Use single-quoted TOML strings so backslashes stay literal.
 
@@ -212,7 +226,11 @@ Topics are recomputed on each refresh, so `devlog obsidian --reindex` applies a 
 "gpt-5-codex" = [1.25, 10.0, 0.125]
 ```
 
-Quarterly rollups (`DevLog/Quarterly/`) sit above the monthly ones. Project hubs show the first paragraph of the repo README and, if the GitHub CLI (`gh`) is installed and logged in, the open pull requests.
+Quarterly rollups (`DevLog/Quarterly/`) sit above the monthly ones. If the GitHub CLI (`gh`) is installed and logged in:
+- project hubs show the first paragraph of the repo README and the repo's open pull requests;
+- day notes list the pull requests you opened or updated that day, with their state (open, draft, merged, closed).
+
+GitHub dates these searches in UTC.
 
 **Optional local models.** Two features can use an [Ollama](https://ollama.com) server on your own machine. Transcript text never goes to an external API, results are cached in `DevLog/.devlog/`, and if Ollama isn't running devlog falls back silently:
 
