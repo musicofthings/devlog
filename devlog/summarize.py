@@ -136,8 +136,9 @@ def _summarize_redacted(sessions: list[SessionDigest], detail: str) -> str:
     work = _work_by_project(sessions)
     if detail == "summary":
         kinds = sorted({w for ws in work.values() for w in ws})
-        parts = [f"Today I logged {total_minutes:.0f} active min across "
-                 f"{len(work)} project(s)."]
+        # "in N project(s)", not "across": the vault backfill parser reads
+        # "across <names>" as project names.
+        parts = [f"Today I logged {total_minutes:.0f} active min in {len(work)} project(s)."]
         if kinds:
             parts.append("Work: " + ", ".join(kinds) + ".")
         return _clamp_sentences(" ".join(parts))
@@ -158,9 +159,10 @@ def generate_post(
     allow_external_api: bool = False,
     public_detail: str = "verbatim",
 ) -> str:
-    # Empty day: never spend tokens on the API.
-    if not sessions:
-        return summarize_with_template(sessions)
+    # Empty day: never spend tokens on the API. "summary" is two numbers and
+    # a list of work types; a model adds only cost and a chance to embellish.
+    if not sessions or public_detail == "summary":
+        return summarize_with_template(sessions, public_detail)
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     # Compact digest for the LLM path; full digest remains available for audits.

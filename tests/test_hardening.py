@@ -115,7 +115,7 @@ def test_public_detail_levels():
 
     summary = summarize_with_template(sessions, "summary")
     assert "variantdb" not in summary and "devlog" not in summary
-    assert "across 2 project(s)" in summary
+    assert "in 2 project(s)" in summary
 
 
 def test_llm_digest_honours_public_detail():
@@ -215,3 +215,63 @@ def test_templates_fill_in_one_pass_and_ship_as_files():
     assert "<title>t · Daily Dev Log</title>" in page
     assert "@@" not in site._admin_panel_html("o/r", "main")
     assert "{{" not in site._template("admin_panel.html")
+
+
+def test_every_public_detail_post_round_trips_through_vault_backfill():
+    from devlog.knowledge import parse_post_meta
+
+    sessions = [_session("variantdb", [PROMPT]), _session("devlog", ["add obsidian hubs"])]
+    day = date(2026, 8, 13)
+
+    def meta(detail: str) -> dict:
+        return parse_post_meta(day, f"# {day}\n\n{summarize_with_template(sessions, detail)}\n")
+
+    verbatim = meta("verbatim")
+    assert [p["slug"] for p in verbatim["projects"]] == ["devlog", "variantdb"]
+    projects = meta("projects")
+    assert [p["slug"] for p in projects["projects"]] == ["devlog", "variantdb"]
+    assert {p["slug"]: p["work_types"] for p in projects["projects"]}["variantdb"] == [
+        "code-review", "data-analysis"]
+    summary = meta("summary")
+    assert summary["projects"] == [] and summary["active_minutes"] == 80
+    assert "code-review" in summary["work_types"]
+
+
+def test_summary_detail_never_calls_the_llm(monkeypatch):
+    from unittest.mock import patch
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    with patch("devlog.summarize.summarize_with_claude") as mocked:
+        post = generate_post([_session("variantdb", [PROMPT])], allow_external_api=True,
+                             public_detail="summary")
+    mocked.assert_not_called()
+    assert post.startswith("Today I logged 40 active min in 1 project(s).")
+
+
+# ------------------------------------------------------------------ init keeps hand edits
+
+
+def test_rerunning_init_keeps_hand_edited_settings(tmp_path: Path, monkeypatch):
+    from devlog.config import load_config, save_config
+    from devlog.init_cmd import cmd_init
+
+    monkeypatch.setattr("devlog.init_cmd.unregister_windows_task", lambda: None)
+    monkeypatch.setattr("devlog.init_cmd.write_publish_now_shortcut",
+                        lambda cfg, **kwargs: tmp_path / "Publish Devlog Now.cmd")
+    monkeypatch.setattr("devlog.obsidian.obsidian_app_config_path",
+                        lambda: tmp_path / "obsidian.json")
+    monkeypatch.setattr("devlog.obsidian.default_new_vault_path", lambda: tmp_path / "Vault")
+
+    cfg_path = tmp_path / "devlog" / "config.toml"
+    save_config(DevlogConfig(
+        project_aliases={"window": "devlog"}, topics={"CRISPR screens": ["crispr"]},
+        redact_patterns=[r"MRN\d{6}"], publish_empty_days=True, publish_mode="auto",
+    ), cfg_path)
+
+    assert cmd_init(["--defaults", "--no-schedule", "--config", str(cfg_path)]) == 0
+    loaded = load_config(cfg_path)
+    assert loaded.project_aliases == {"window": "devlog"}
+    assert loaded.topics == {"CRISPR screens": ["crispr"]}
+    assert loaded.redact_patterns == [r"MRN\d{6}"]
+    assert loaded.publish_empty_days is True
+    assert loaded.publish_mode == "manual"  # prompted settings still reset to the answer

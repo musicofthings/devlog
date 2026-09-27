@@ -46,8 +46,9 @@ def undo_local_commit(repo: Path, git_run: GitRunner, what: str) -> str | None:
         return None
     detail = (reset.stderr or reset.stdout or "git reset failed").strip()
     return (
-        f"{what} commit is local but unpushed; run `git reset --keep HEAD~1` to restore "
-        f"(auto-reset failed: {detail})"
+        f"{what} commit is local but unpushed and `git reset --keep HEAD~1` refused to run, "
+        "likely because uncommitted changes touch files in that commit; commit or stash "
+        f"them, then run `git reset --keep HEAD~1` to restore (git said: {detail})"
     )
 
 

@@ -17,7 +17,7 @@ from devlog.models import SessionDigest
 from devlog.noise import headline_task, is_injected_prompt, is_low_signal_prompt
 from devlog.privacy import redact_sensitive_text
 from devlog.projects import Project, ProjectResolver
-from devlog.worktypes import classify
+from devlog.worktypes import WORK_TYPE_DESCRIPTIONS, classify
 
 MAX_TASKS = 5
 MAX_FILES = 8
@@ -26,11 +26,17 @@ MAX_THREADS = 8
 TASK_CHARS = 160
 
 _SLUG_BAD_RE = re.compile(r"[^a-z0-9._-]+")
+# The template post in all three public_detail shapes:
+#   verbatim: "... across a, b. I worked on a: <prompt>; b: <prompt>. Tools: X (3x)."
+#   projects: "... across a, b. Work: code-review on a; feature on b."
+#   summary:  "... in 2 project(s). Work: code-review, feature."
 _TEMPLATE_RE = re.compile(
-    r"Today I logged (?P<minutes>\d+) active min across (?P<projects>.+?)\.\s+"
-    r"(?:I worked on (?P<tasks>.+?)\.\s+)?"
-    r"(?:I recorded activity in (?P<sessions>\d+) coding session\(s\)\.\s+)?"
-    r"(?:Tools: (?P<tools>.+?)\.|The recorded source was (?P<sources>.+?)\.)\s*$",
+    r"Today I logged (?P<minutes>\d+) active min "
+    r"(?:in (?P<count>\d+) project\(s\)|across (?P<projects>.+?))\.\s*"
+    r"(?:I worked on (?P<tasks>.+?)\.\s*)?"
+    r"(?:Work: (?P<work>.+?)\.\s*)?"
+    r"(?:I recorded activity in (?P<sessions>\d+) coding session\(s\)\.\s*)?"
+    r"(?:Tools: (?P<tools>.+?)\.|The recorded source was (?P<sources>.+?)\.)?\s*$",
     re.DOTALL,
 )
 _TOOL_RE = re.compile(r"^(?P<name>.+?) \((?P<count>\d+)x\)$")
@@ -163,7 +169,19 @@ def parse_post_meta(
         return _finish(day, [], post_markdown, minutes=0, sessions=0, sources=[], origin="post")
 
     alias = resolver.alias if resolver is not None else (lambda n: n)
-    raw_names = [alias(n.strip()) for n in match.group("projects").split(",") if n.strip()]
+    raw_names = [alias(n.strip()) for n in (match.group("projects") or "").split(",")
+                 if n.strip()]
+    # "Work:" clause: per project ("x and y on name; ...") or day-wide ("x, y").
+    work_by_slug: dict[str, list[str]] = {}
+    day_work: list[str] = []
+    for chunk in (match.group("work") or "").split("; "):
+        kinds, sep, name = chunk.rpartition(" on ")
+        if sep:
+            work_by_slug[project_slug(alias(name))] = [
+                w for w in kinds.split(" and ") if w in WORK_TYPE_DESCRIPTIONS]
+        else:
+            day_work += [w.strip() for w in chunk.split(",")
+                         if w.strip() in WORK_TYPE_DESCRIPTIONS]
     tasks_by_slug: dict[str, list[str]] = {}
     for chunk in (match.group("tasks") or "").split("; "):
         name, sep, task = chunk.partition(": ")
@@ -196,7 +214,7 @@ def parse_post_meta(
                 "minutes": int(match.group("minutes")) if single else None,
                 "sessions": None,
                 "sources": [],
-                "work_types": classify(tasks, project_tools),
+                "work_types": work_by_slug.get(slug) or classify(tasks, project_tools),
                 "tasks": tasks,
                 "files": [],
                 "tools": project_tools,
@@ -204,6 +222,11 @@ def parse_post_meta(
         )
     sessions = match.group("sessions")
     sources = [s.strip() for s in (match.group("sources") or "").split(",") if s.strip()]
+    if not projects and day_work:
+        # summary-level post: no names, but the kinds of work are known.
+        meta = _finish(day, [], post_markdown, minutes=int(match.group("minutes")),
+                       sessions=None, sources=sources, origin="post")
+        return {**meta, "work_types": day_work}
     return _finish(
         day,
         projects,
