@@ -24,6 +24,7 @@ import copy
 import hashlib
 import json
 import re
+import statistics
 from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
@@ -50,7 +51,11 @@ WEEKLY_DIR = "Weekly"
 MONTHLY_DIR = "Monthly"
 QUARTERLY_DIR = "Quarterly"
 TOPICS_DIR = "Topics"
+PIPELINES_DIR = "Pipelines"
 CANVAS_DIR = "Canvas"
+MAX_HUB_RUNS = 100
+PROJECT_HUB_RUNS = 10
+RUN_ICONS = {"success": "✅", "failed": "❌", "running": "⏳", "incomplete": "⚠️"}
 RECENT_DAYS = 14
 MAX_HUB_THREADS = 30
 _DAY_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
@@ -269,6 +274,12 @@ class Graph:
     def topic_rel(self, slug: str) -> str:
         return self._rel(TOPICS_DIR, slug)
 
+    def pipeline_rel(self, slug: str) -> str:
+        return self._rel(PIPELINES_DIR, slug)
+
+    def pipeline(self, slug: str, name: str, *, table: bool = False) -> str:
+        return self.link(self.pipeline_rel(slug), name, table=table)
+
     def canvas_file(self, slug: str) -> str:
         return self._rel(CANVAS_DIR, f"{slug}.canvas")
 
@@ -327,6 +338,50 @@ def _checkbox(text: str, done: set[str], suffix: str = "") -> str:
     return f"- [{mark}] {shown}{suffix}"
 
 
+def _duration(minutes) -> str:
+    if minutes is None:
+        return "—"
+    minutes = float(minutes)
+    if minutes < 1:
+        return "<1 min"
+    if minutes < 90:
+        return f"{minutes:.0f} min"
+    return f"{int(minutes // 60)}h {int(minutes % 60):02d}m"
+
+
+def _run_project(g: Graph, run: dict, display: dict[str, str], *, table: bool = False) -> str:
+    slug = run.get("project_slug") or ""
+    if slug in display:
+        return g.project(slug, display[slug], table=table)
+    return safe_text(slug, table=table)
+
+
+def _run_line(g: Graph, run: dict, display: dict[str, str], *, day: str | None = None) -> str:
+    """One run as a list item: status, pipeline hub link, version, name, time, duration."""
+    parts = [f"{RUN_ICONS.get(run['status'], '•')} "
+             f"{g.pipeline(run['slug'], safe_text(run['pipeline']))}"]
+    if run.get("version"):
+        parts[0] += f" {safe_text(run['version'])}"
+    if run.get("run_name"):
+        parts.append(f"`{run['run_name'].replace('`', '')}`")
+    parts.append(run["start"][11:16])
+    parts.append(_duration(run.get("minutes")))
+    if run.get("profile"):
+        parts.append(safe_text(run["profile"]))
+    # On a project hub the project is implied; the day link is what's useful.
+    parts.append(g.day(day) if day else _run_project(g, run, display))
+    line = "- " + " · ".join(parts)
+    if run.get("error"):
+        line += f" — {safe_text(run['error'])}"
+    return line
+
+
+def all_runs(days: dict[str, dict]) -> list[tuple[str, dict]]:
+    """(day, run) pairs, newest first."""
+    out = [(d, r) for d in days for r in days[d].get("runs") or []]
+    return sorted(out, key=lambda dr: dr[1]["start"], reverse=True)
+
+
 # ---------------------------------------------------------------- renderers
 
 
@@ -357,10 +412,17 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
     prs = sum(len(p.get("pull_requests") or []) for p in projects)
     if prs:
         fm.append(f"pull_requests: {prs}")
+    runs = meta.get("runs") or []
+    if runs:
+        fm.append(f"pipeline_runs: {len(runs)}")
+        failed = sum(r["status"] == "failed" for r in runs)
+        if failed:
+            fm.append(f"failed_runs: {failed}")
     day_usd = _cost(g, *(p.get("tokens_by_model") for p in projects))[0]
     if day_usd:
         fm.append(f"cost_usd: {day_usd:.2f}")
-    open_threads = [t for p in projects for t in p.get("threads") or []
+    open_threads = [t for p in projects for t in p.get("threads") or []]
+    open_threads = [t for t in open_threads + list(meta.get("threads") or [])
                     if thread_key(safe_text(t)) not in done]
     if open_threads:
         fm.append(f"open_threads: {len(open_threads)}")
@@ -369,11 +431,15 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
     topics = meta.get("topics") or []
     if topics:
         fm += _yaml_list("topics", [g.topic(t, topic_names.get(t, t)) for t in topics])
+    pipelines = {r["slug"]: r["pipeline"] for r in runs}
+    if pipelines:
+        fm += _yaml_list("pipelines", [g.pipeline(sl, n) for sl, n in pipelines.items()])
     if meta.get("sources"):
         fm += _yaml_list("sources", meta["sources"], quote=False)
     tags = ["devlog"] + [f"devlog/project/{_tag(p['slug'])}" for p in projects]
     tags += [f"devlog/work/{_tag(w)}" for w in work]
     tags += [f"devlog/topic/{_tag(t)}" for t in topics]
+    tags += [f"devlog/pipeline/{_tag(sl)}" for sl in pipelines]
     fm += _yaml_list("tags", tags, quote=False)
 
     nav = [f"← {g.day(prev_day)}" if prev_day else "← (first)", g.week(week), g.month(month),
@@ -409,6 +475,10 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
             if p.get("files"):
                 body.append("- **Files:** " + ", ".join(f"`{f.replace('`', '')}`"
                                                         for f in p["files"]))
+            if p.get("notebooks"):
+                body.append("- **Notebooks:** " + ", ".join(
+                    f"[{safe_text(nb['name'])}](<file:///{nb['path'].lstrip('/')}>)"
+                    for nb in p["notebooks"]))
             if p.get("tools"):
                 body.append("- **Tools:** " + ", ".join(
                     f"{safe_text(k)} ×{v}" for k, v in p["tools"].items()))
@@ -419,6 +489,12 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
             if p.get("threads"):
                 body.append("- **Open threads** (from the session recap):")
                 body += ["    " + _checkbox(t, done) for t in p["threads"]]
+    if runs:
+        body += ["", "## Pipeline runs", ""]
+        body += [_run_line(g, r, display) for r in runs]
+    if meta.get("threads"):
+        body += ["", "## Open threads", ""]
+        body += [_checkbox(t, done) for t in meta["threads"]]
     if meta.get("related"):
         body += ["", "## Related days", ""]
         for rel in meta["related"]:
@@ -544,8 +620,64 @@ def render_project(g: Graph, slug: str, days: dict[str, dict], names: Counter,
         body += [_checkbox(t, done, f" · {g.day(d)}") for t, d in threads[:MAX_HUB_THREADS]]
         if len(threads) > MAX_HUB_THREADS:
             body.append(f"- … {len(threads) - MAX_HUB_THREADS} older thread(s) in day notes")
+    runs = [(d, r) for d, r in all_runs(days) if r.get("project_slug") == slug]
+    if runs:
+        body += ["", "## Pipeline runs", ""]
+        body += [_run_line(g, r, {}, day=d) for d, r in runs[:PROJECT_HUB_RUNS]]
+        if len(runs) > PROJECT_HUB_RUNS:
+            body.append(f"- … {len(runs) - PROJECT_HUB_RUNS} older run(s) on the pipeline hubs")
     body += ["", "## Timeline", ""] + _timeline_rows(g, entries)
     return _compose(fm, body, g.path(g.project_rel(slug)))
+
+
+def render_pipeline(g: Graph, slug: str, runs: list[tuple[str, dict]],
+                    display: dict[str, str]) -> str:
+    """Hub for one pipeline: every run, versions used, failures with their errors."""
+    name = runs[0][1]["pipeline"]
+    engine = runs[0][1]["engine"]
+    status = Counter(r["status"] for _, r in runs)
+    versions = Counter(r["version"] for _, r in runs if r.get("version"))
+    projects = Counter(r.get("project_slug") for _, r in runs if r.get("project_slug"))
+    minutes = [r["minutes"] for _, r in runs if r.get("minutes") is not None]
+    first, last = runs[-1][0], runs[0][0]
+    fm = ["type: devlog-pipeline", f"pipeline: {_q(name)}", f"engine: {engine}",
+          f"runs: {len(runs)}", f"succeeded: {status['success']}", f"failed: {status['failed']}",
+          f"first_run: {first}", f"last_run: {last}"]
+    fm += _yaml_list("versions", [v for v, _ in versions.most_common()])
+    fm += _yaml_list("projects", [g.project(p, display[p]) for p, _ in projects.most_common()
+                                  if p in display])
+    fm += _yaml_list("tags", ["devlog", "devlog/pipeline-hub", f"devlog/pipeline/{_tag(slug)}"],
+                     quote=False)
+    summary = (f"> **{len(runs)}** run(s) · ✅ {status['success']} · ❌ {status['failed']}"
+               f" · first {g.day(first)} · last {g.day(last)}")
+    if minutes:
+        summary += f" · median {_duration(statistics.median(minutes))}"
+    body = [f"# {safe_text(name)}", "", f"> [!info] {engine}", summary, ""]
+    if versions:
+        body.append("**Versions:** " + " · ".join(f"{safe_text(v)} ×{n}"
+                                                  for v, n in versions.most_common()))
+    if projects:
+        body.append("**Projects:** " + " · ".join(
+            f"{_run_project(g, {'project_slug': p}, display)} ×{n}"
+            for p, n in projects.most_common()))
+    body += ["", "## Runs", "", "| Day | Run | Version | Status | Time | Profile | Project |",
+             "|---|---|---|---|---:|---|---|"]
+    for d, r in runs[:MAX_HUB_RUNS]:
+        run_name = f"`{r['run_name'].replace('`', '')}`" if r.get("run_name") else ""
+        body.append(
+            f"| {g.day(d, table=True)} {r['start'][11:16]} | {run_name} | "
+            f"{safe_text(r.get('version') or '', table=True)} | "
+            f"{RUN_ICONS.get(r['status'], '')} {r['status']} | {_duration(r.get('minutes'))} | "
+            f"{safe_text(r.get('profile') or '', table=True)} | "
+            f"{_run_project(g, r, display, table=True)} |")
+    if len(runs) > MAX_HUB_RUNS:
+        body.append(f"\n… {len(runs) - MAX_HUB_RUNS} older run(s) in day notes")
+    failures = [(d, r) for d, r in runs if r["status"] == "failed"][:10]
+    if failures:
+        body += ["", "## Recent failures", ""]
+        body += [f"- {g.day(d)} `{(r.get('run_name') or '?').replace('`', '')}` — "
+                 f"{safe_text(r.get('error') or 'no error message found')}" for d, r in failures]
+    return _compose(fm, body, g.path(g.pipeline_rel(slug)))
 
 
 def render_work(g: Graph, slug: str, days: dict[str, dict], display: dict[str, str]) -> str:
@@ -798,6 +930,15 @@ def render_home(g: Graph, days: dict[str, dict], display: dict[str, str],
     if work:
         body += ["## Work types", "",
                  " · ".join(f"{g.work(w)} ×{n}" for w, n in work.most_common()), ""]
+    pipeline_runs = Counter()
+    pipeline_names: dict[str, str] = {}
+    for _, run in all_runs(days):
+        pipeline_runs[run["slug"]] += 1
+        pipeline_names.setdefault(run["slug"], run["pipeline"])
+    if pipeline_runs:
+        body += ["## Pipelines", "",
+                 " · ".join(f"{g.pipeline(sl, safe_text(pipeline_names[sl]))} ×{n}"
+                            for sl, n in pipeline_runs.most_common()), ""]
     if topics:
         body += ["## Topics", "",
                  " · ".join(f"{g.topic(t, topic_names.get(t, t))} ×{n}"
@@ -1191,6 +1332,11 @@ def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
         emit(g.topic_rel(slug), render_topic(g, slug, topic_names.get(slug, slug),
                                              detector.categories.get(slug, "custom"),
                                              active_days, display, topic_names))
+    by_pipeline: dict[str, list[tuple[str, dict]]] = {}
+    for d, run in all_runs(days):
+        by_pipeline.setdefault(run["slug"], []).append((d, run))
+    for slug, runs in by_pipeline.items():
+        emit(g.pipeline_rel(slug), render_pipeline(g, slug, runs, display))
     weeks = sorted({iso_week(d) for d in days})
     for week in weeks:
         emit(g.period_rel("week", week),
@@ -1214,6 +1360,7 @@ def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
     removed = _prune_stale(g.root / PROJECTS_DIR, set(names))
     removed += _prune_stale(g.root / WORK_DIR, work_types)
     removed += _prune_stale(g.root / TOPICS_DIR, topics)
+    removed += _prune_stale(g.root / PIPELINES_DIR, set(by_pipeline))
     removed += _prune_stale(g.root / WEEKLY_DIR, set(weeks))
     removed += _prune_stale(g.root / MONTHLY_DIR, set(months))
     removed += _prune_stale(g.root / QUARTERLY_DIR, set(quarters))

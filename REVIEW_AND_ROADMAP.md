@@ -175,6 +175,31 @@ All review findings and roadmap items are now shipped. See **Ideas beyond the ro
 - ✅ **`devlog publish --explain`:** shows the sources scanned, how each project was named,
   commit counts, the writer and why, and how many redaction patterns fired.
 
+## Phase 5 (in progress)
+
+Proposed after the roadmap closed, ordered by value:
+
+1. ✅ **Clean up what's already public.** `devlog audit` scans every post for harness text,
+   credentials, identifiers, and user paths (LEAK) plus folder layouts, your login name, and
+   continuation nudges (note); `--fix` rewrites the posts, rebuilds the site, and commits.
+   Running it on this repo found exactly the five leaky posts from finding #1 (08-08, 08-12,
+   08-16, 08-17, 09-24), plus notes on four "Try again"-style tasks and three posts naming the
+   home folder after your username; all ten are rewritten in this change, and CI now runs the
+   audit so a leak fails the build. `redact_presets` adds ready-made `mrn`, `dob`, `ssn`,
+   `phone`, and `email` patterns (`"clinical"` = all five). Git history still has the old
+   text.
+2. ✅ **Pipeline runs.** Nextflow (`.nextflow/history`, `.nextflow.log`) and Snakemake
+   (`.snakemake/log`) runs under each active project, plus `pipeline_dirs`, appear in day
+   notes, project hubs, and new `DevLog/Pipelines/` hubs; failed runs become open threads.
+   Notebooks a session edited are linked from the day note.
+3. **Literature linking:** PMIDs, DOIs, and arXiv IDs in prompts become vault links, matched
+   to Zotero citekeys via Better BibTeX when it's running.
+4. **Presentation export:** `devlog deck --week|--month|--project` writes a slide outline
+   (for Gamma or PowerPoint) from the rollups, at the `public_detail` level you choose.
+5. **Write access for agents over MCP** (opt-in `mcp_write`): `close_thread`, `add_note`,
+   `log_decision`, below the managed markers only.
+6. **Packaging:** PyPI release, CHANGELOG, `devlog doctor`, mypy in CI, RSS and site search.
+
 ## Recommended Obsidian plugins
 
 | Need | Plugin | Notes |

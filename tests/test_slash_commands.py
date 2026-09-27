@@ -21,6 +21,7 @@ COMMANDS = (
     "devlog-unhide",
     "devlog-status",
     "devlog-obsidian",
+    "devlog-audit",
 )
 
 SURFACES = {

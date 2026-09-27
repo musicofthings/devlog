@@ -32,6 +32,24 @@ _LOW_SIGNAL_RE = re.compile(
 )
 
 
+# Harness markers anywhere in text (not only at the start): tags with a
+# separator or all caps (<mcp_meta_tools>, <system-reminder>, <INSTRUCTIONS>),
+# which ordinary prose and code (<div>, List<T>) don't use.
+_HARNESS_TAG_RE = re.compile(r"</?(?:[a-z]+[_-][\w-]+|[A-Z]{4,}(?:_[A-Z]+)*)>")
+_HARNESS_PHRASE_RE = re.compile(
+    "|".join(re.escape(p) for p in _INJECTED_PREFIXES if not p.startswith("<"))
+    + r"|you have access to mcp",
+    re.IGNORECASE,
+)
+
+
+def find_injected(text: str) -> list[str]:
+    """Harness markers found anywhere in `text` (for auditing published posts)."""
+    found = [m.group(0) for m in _HARNESS_TAG_RE.finditer(text)]
+    found += [m.group(0) for m in _HARNESS_PHRASE_RE.finditer(text)]
+    return list(dict.fromkeys(found))
+
+
 def is_injected_prompt(text: str) -> bool:
     """True when `text` is tool/harness context rather than something the user asked."""
     stripped = text.lstrip()

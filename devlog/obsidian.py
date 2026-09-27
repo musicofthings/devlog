@@ -361,13 +361,13 @@ def try_mirror_post(
         return {"status": "disabled"}
     if not root.is_dir():
         return {"status": "vault_missing", "vault": str(root)}
-    configure_redaction(cfg.redact_patterns)
+    configure_redaction(cfg.redact_patterns, cfg.redact_presets)
     try:
         archive = archive_path(cfg, day)
         daily = daily_path(cfg, day)
         folder_root = _folder_root(cfg)
         days = load_index(folder_root)
-        resolver = resolver or ProjectResolver(cfg.project_aliases)
+        resolver = resolver or ProjectResolver.from_config(cfg)
         _upsert_day(day, post_markdown, digests, days, resolver)
         if refresh:
             present = existing_day_notes(folder_root) | {day.isoformat()}
@@ -398,7 +398,7 @@ def remove_mirrored_post(cfg: DevlogConfig, day: date) -> dict:
         return {"status": "disabled"}
     if not root.is_dir():
         return {"status": "vault_missing", "vault": str(root)}
-    configure_redaction(cfg.redact_patterns)
+    configure_redaction(cfg.redact_patterns, cfg.redact_presets)
     try:
         archive = archive_path(cfg, day)
         daily = daily_path(cfg, day)
@@ -443,7 +443,7 @@ def backfill_posts(
         paths = sorted(posts_dir.glob("*.md"))
     days: list[str] = []
     written = 0
-    resolver = ProjectResolver(cfg.project_aliases)
+    resolver = ProjectResolver.from_config(cfg)
     for path in paths:
         match = _DATE_POST_RE.match(path.name)
         if match is None or not path.is_file():

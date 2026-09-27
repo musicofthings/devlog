@@ -15,6 +15,7 @@ from datetime import date
 from devlog.digest import basename, total_active_minutes
 from devlog.models import SessionDigest
 from devlog.noise import headline_task, is_injected_prompt, is_low_signal_prompt
+from devlog.pipelines import run_thread
 from devlog.pricing import merge_tokens
 from devlog.privacy import redact_sensitive_text
 from devlog.projects import Project, ProjectResolver
@@ -24,6 +25,7 @@ MAX_TASKS = 5
 MAX_FILES = 8
 MAX_TOOLS = 5
 MAX_THREADS = 8
+MAX_NOTEBOOKS = 8
 TASK_CHARS = 160
 
 _SLUG_BAD_RE = re.compile(r"[^a-z0-9._-]+")
@@ -100,6 +102,33 @@ def _threads(group: list[SessionDigest]) -> list[str]:
     return out[:MAX_THREADS]
 
 
+def _notebooks(group: list[SessionDigest]) -> list[dict]:
+    """Jupyter notebooks the sessions touched, for file:// links in the private vault."""
+    paths = sorted({f for d in group for f in d.files_touched if f.lower().endswith(".ipynb")})
+    return [{"name": redact_sensitive_text(basename(f)), "path": f.replace("\\", "/")}
+            for f in paths[:MAX_NOTEBOOKS]]
+
+
+def attach_runs(projects: list[dict], runs: list[dict]) -> list[str]:
+    """Tag runs with their project slug; failed runs become open threads.
+
+    A failed run's thread goes on its project when that project was active
+    that day; otherwise it's returned as a day-level thread.
+    """
+    by_slug = {p["slug"]: p for p in projects}
+    loose: list[str] = []
+    for run in runs:
+        run["project_slug"] = project_slug(run.pop("project", "") or "unknown")
+        if run["status"] != "failed":
+            continue
+        thread = clean_task(run_thread(run))
+        owner = by_slug.get(run["project_slug"])
+        target = owner.setdefault("threads", []) if owner is not None else loose
+        if thread not in target:
+            target.append(thread)
+    return loose
+
+
 def build_day_meta(
     day: date,
     digests: list[SessionDigest],
@@ -146,9 +175,13 @@ def build_day_meta(
                 "root": str(identities[slug].root) if identities[slug].root else None,
                 "commits": resolver.commits(identities[slug], day),
                 "pull_requests": resolver.pull_requests(identities[slug], day),
+                "notebooks": _notebooks(group),
             }
         )
     projects.sort(key=lambda p: (-p["minutes"], p["slug"]))
+    search = [str(p.root) for p in identities.values() if p.root is not None]
+    search += sorted({d.project_path for d in digests if d.project_path})
+    runs = resolver.runs(search, day)
     return _finish(
         day,
         projects,
@@ -158,6 +191,7 @@ def build_day_meta(
         sources=sorted({d.source for d in digests}),
         origin="sessions",
         tokens=_tokens(digests),
+        runs=runs,
     )
 
 
@@ -173,7 +207,8 @@ def parse_post_meta(
     summary = post_summary(post_markdown)
     match = _TEMPLATE_RE.search(re.sub(r"\s+", " ", summary))
     if match is None:
-        return _finish(day, [], post_markdown, minutes=0, sessions=0, sources=[], origin="post")
+        return _finish(day, [], post_markdown, minutes=0, sessions=0, sources=[], origin="post",
+                       runs=resolver.runs([], day) if resolver is not None else [])
 
     alias = resolver.alias if resolver is not None else (lambda n: n)
     raw_names = [alias(n.strip()) for n in (match.group("projects") or "").split(",")
@@ -229,10 +264,11 @@ def parse_post_meta(
         )
     sessions = match.group("sessions")
     sources = [s.strip() for s in (match.group("sources") or "").split(",") if s.strip()]
+    runs = resolver.runs([], day) if resolver is not None else []
     if not projects and day_work:
         # summary-level post: no names, but the kinds of work are known.
         meta = _finish(day, [], post_markdown, minutes=int(match.group("minutes")),
-                       sessions=None, sources=sources, origin="post")
+                       sessions=None, sources=sources, origin="post", runs=runs)
         return {**meta, "work_types": day_work}
     return _finish(
         day,
@@ -243,6 +279,7 @@ def parse_post_meta(
         sources=sources,
         origin="post",
         day_tools=tools,
+        runs=runs,
     )
 
 
@@ -257,8 +294,11 @@ def _finish(
     origin: str,
     day_tools: dict[str, int] | None = None,
     tokens: dict[str, int] | None = None,
+    runs: list[dict] | None = None,
 ) -> dict:
     summary = post_summary(post_markdown)
+    runs = list(runs or [])
+    day_threads = attach_runs(projects, runs)
     work: list[str] = []
     for project in projects:
         for slug in project["work_types"]:
@@ -279,6 +319,8 @@ def _finish(
         "summary": summary,
         "origin": origin,
         "tokens": tokens,
+        "runs": runs,
+        "threads": day_threads,
     }
 
 

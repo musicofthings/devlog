@@ -327,10 +327,10 @@ def publish_day(
                 raise RuntimeError(f"Configured repository is not a git checkout: {repo}")
             _ensure_managed_paths_clean(repo, git_run)
 
-    configure_redaction(cfg.redact_patterns)
+    configure_redaction(cfg.redact_patterns, cfg.redact_presets)
     source_stats: dict = {}
     digests = collect_digests(cfg, target, stats=source_stats)
-    resolver = ProjectResolver(cfg.project_aliases)
+    resolver = ProjectResolver.from_config(cfg)
     name_projects(digests, resolver)
     commit_counts = count_commits([d.project_path for d in digests], resolver, target)
     writer: dict = {}
