@@ -134,14 +134,39 @@ def _clip(text: str, limit: int) -> str:
     return text[: max(0, limit - 1)].rstrip() + "…"
 
 
-def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) -> str:
+def _redacted_digest(sessions: list[SessionDigest], *, anonymize: bool) -> str:
+    from devlog.worktypes import classify
+
+    names = sorted({redact_sensitive_text(basename(s.project_path)) for s in sessions})
+    label = {n: (f"project {i}" if anonymize else n) for i, n in enumerate(names, 1)}
+    lines = [f"{total_active_minutes(sessions):.0f} min, {len(sessions)} session(s): "
+             + ", ".join(label[n] for n in names)]
+    for s in sessions:
+        name = label[redact_sensitive_text(basename(s.project_path))]
+        lines.append(f"\n[{name}, {s.duration_minutes:.0f}m, src={s.source}]")
+        work = classify(s.user_messages, s.tool_calls)
+        if work:
+            lines.append("  Work: " + ", ".join(work))
+        if s.tool_calls:
+            lines.append("  Tools: " + ", ".join(
+                f"{redact_sensitive_text(k)} x{v}" for k, v in s.tool_calls.items()))
+    return "\n".join(lines)
+
+
+def build_raw_digest(
+    sessions: list[SessionDigest], *, compact: bool = False, detail: str = "verbatim"
+) -> str:
     """Render a plain-text summary of a day's session digests.
 
     compact=True produces a shorter digest for LLM prompts (basenames, capped
     lists, clipped strings) to reduce input tokens without dropping the signal.
+    detail below "verbatim" (the `public_detail` setting) replaces prompts,
+    files, and commands with generic work types; "summary" also hides names.
     """
     if not sessions:
         return "No coding activity recorded today."
+    if detail != "verbatim":
+        return _redacted_digest(sessions, anonymize=detail == "summary")
 
     max_tasks = 2 if compact else None
     max_files = 5 if compact else None

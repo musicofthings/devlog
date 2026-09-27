@@ -20,9 +20,20 @@ _ASSIGNMENT_RE = re.compile(
 )
 
 
+# User patterns from `redact_patterns` in config.toml (MRNs, sample IDs, ...).
+_user_patterns: list[re.Pattern[str]] = []
+
+
+def configure_redaction(patterns: list[str] | None) -> None:
+    """Install the user's extra redaction regexes (replaces any previous set)."""
+    _user_patterns[:] = [re.compile(p) for p in patterns or []]
+
+
 def redact_sensitive_text(text: str) -> str:
-    """Best-effort removal of common credentials and the user's home path."""
+    """Best-effort removal of credentials, the home path, and user patterns."""
     redacted = text
+    for pattern in _user_patterns:
+        redacted = pattern.sub("[REDACTED]", redacted)
     for pattern in _SECRET_PATTERNS:
         redacted = pattern.sub("[REDACTED_SECRET]", redacted)
     redacted = _BEARER_RE.sub(r"\1[REDACTED_SECRET]", redacted)

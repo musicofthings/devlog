@@ -10,6 +10,7 @@ from pathlib import Path
 from devlog.config import DEFAULT_SOURCES, DevlogConfig, load_config
 from devlog.digest import slice_for_date
 from devlog.models import RawSession
+from devlog.privacy import configure_redaction
 from devlog.summarize import generate_post
 
 
@@ -122,6 +123,7 @@ def cmd_run(argv: list[str] | None = None) -> int:
             print(f"[{source.name}] found {len(found)} session(s) under {root}")
         raw_sessions.extend(found)
 
+    configure_redaction(cfg.redact_patterns)
     digests = slice_for_date(raw_sessions, target_date, tz)
 
     print(f"=== Found {len(digests)} session(s) for {target_date} ===\n")
@@ -129,6 +131,7 @@ def cmd_run(argv: list[str] | None = None) -> int:
         digests,
         model=cfg.model,
         allow_external_api=cfg.allow_external_api,
+        public_detail=cfg.public_detail,
     )
     print("=== Daily post ===\n")
     print(post)

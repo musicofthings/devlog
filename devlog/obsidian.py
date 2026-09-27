@@ -14,6 +14,7 @@ from pathlib import Path
 from devlog.config import DevlogConfig, default_config_path, load_config
 from devlog.knowledge import build_day_meta, parse_post_meta
 from devlog.models import SessionDigest
+from devlog.privacy import configure_redaction
 from devlog.projects import ProjectResolver
 from devlog.topics import TopicDetector
 from devlog.vault_graph import (
@@ -340,6 +341,7 @@ def try_mirror_post(
         return {"status": "disabled"}
     if not root.is_dir():
         return {"status": "vault_missing", "vault": str(root)}
+    configure_redaction(cfg.redact_patterns)
     try:
         archive = archive_path(cfg, day)
         daily = daily_path(cfg, day)
@@ -376,6 +378,7 @@ def remove_mirrored_post(cfg: DevlogConfig, day: date) -> dict:
         return {"status": "disabled"}
     if not root.is_dir():
         return {"status": "vault_missing", "vault": str(root)}
+    configure_redaction(cfg.redact_patterns)
     try:
         archive = archive_path(cfg, day)
         daily = daily_path(cfg, day)

@@ -7,7 +7,14 @@ from datetime import date
 from pathlib import Path
 
 from devlog.config import DevlogConfig, default_config_path, load_config
-from devlog.gitutil import GitPublishError, GitRunner, commit_and_push, default_git, git_paths
+from devlog.gitutil import (
+    GitPublishError,
+    GitRunner,
+    commit_and_push,
+    default_git,
+    git_paths,
+    undo_local_commit,
+)
 from devlog.hidden import hide_date, is_hidden, load_hidden_dates, unhide_date
 from devlog.site import rebuild_site
 from devlog.status import record_event
@@ -25,13 +32,9 @@ def _restore_failed_visibility(
 ) -> str:
     """Undo a failed hide/unhide, mirroring delete/publish recovery."""
     if committed:
-        reset = git_run(["git", "reset", "--hard", "HEAD~1"], repo)
-        if reset.returncode != 0:
-            detail = (reset.stderr or reset.stdout or "git reset failed").strip()
-            return (
-                "visibility commit is local but unpushed; run "
-                f"`git reset --hard HEAD~1` to restore (auto-reset failed: {detail})"
-            )
+        failed = undo_local_commit(repo, git_run, "visibility")
+        if failed:
+            return failed
         return "local visibility commit was reset; tree restored"
 
     if previous_hidden is None:

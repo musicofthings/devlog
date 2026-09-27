@@ -8,10 +8,18 @@ from pathlib import Path
 
 from devlog.config import DevlogConfig, default_config_path, load_config
 from devlog.digest import slice_for_date
-from devlog.gitutil import GitPublishError, GitRunner, add_and_commit, commit_and_push, git_paths
+from devlog.gitutil import (
+    GitPublishError,
+    GitRunner,
+    add_and_commit,
+    commit_and_push,
+    git_paths,
+    undo_local_commit,
+)
 from devlog.gitutil import default_git as _default_git
 from devlog.models import RawSession
 from devlog.obsidian import planned_paths, try_mirror_post
+from devlog.privacy import configure_redaction
 from devlog.site import list_posts, rebuild_site, write_post_markdown
 from devlog.status import record_event, status_path
 from devlog.summarize import generate_post
@@ -46,13 +54,9 @@ def _restore_failed_publish(
     paths / an existing post that would skip republish.
     """
     if committed:
-        reset = git_run(["git", "reset", "--hard", "HEAD~1"], repo)
-        if reset.returncode != 0:
-            detail = (reset.stderr or reset.stdout or "git reset failed").strip()
-            return (
-                "publish commit is local but unpushed; run "
-                f"`git reset --hard HEAD~1` to restore (auto-reset failed: {detail})"
-            )
+        failed = undo_local_commit(repo, git_run, "publish")
+        if failed:
+            return failed
         # Confirm/review and force-overwrite keep a local body in memory; if the
         # reset dropped an unpushed new file, put that body back so the operator
         # can retry without regenerating.
@@ -252,12 +256,32 @@ def publish_day(
                 raise RuntimeError(f"Configured repository is not a git checkout: {repo}")
             _ensure_managed_paths_clean(repo, git_run)
 
+    configure_redaction(cfg.redact_patterns)
     digests = collect_digests(cfg, target)
     body = generate_post(
         digests,
         model=cfg.model,
         allow_external_api=cfg.allow_external_api,
+        public_detail=cfg.public_detail,
     )
+
+    if not digests and not cfg.publish_empty_days:
+        # Nothing public to say: keep the quiet day in the private vault (so
+        # streaks and weekly notes stay truthful) but commit nothing.
+        result = {
+            "status": "skipped_empty",
+            "date": target.isoformat(),
+            "reason": "no coding activity (publish_empty_days = false)",
+            "publish_mode": cfg.publish_mode,
+            "sessions": 0,
+        }
+        if dry_run:
+            result["obsidian"] = planned_paths(cfg, target)
+        else:
+            result["obsidian"] = try_mirror_post(
+                cfg, target, f"# {target.isoformat()}\n\n{body}\n", digests
+            )
+        return result
 
     if dry_run:
         return {
@@ -519,6 +543,8 @@ def cmd_publish(argv: list[str] | None = None) -> int:
         print(outcome)
     else:
         print(f"{outcome.get('status')}: {outcome.get('date', target.isoformat())}")
+        if outcome.get("reason"):
+            print(outcome["reason"])
         if outcome.get("next_steps"):
             print(outcome["next_steps"])
         obsidian = outcome.get("obsidian") or {}
