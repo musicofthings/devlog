@@ -120,6 +120,8 @@ class DevlogConfig:
     redact_presets: list[str] = field(default_factory=list)
     # Folders outside your projects where you launch Nextflow/Snakemake (vault only).
     pipeline_dirs: list[str] = field(default_factory=list)
+    # Better BibTeX JSON-RPC endpoint for citekey lookups; "" turns lookups off.
+    zotero_url: str = "http://localhost:23119/better-bibtex/json-rpc"
     # False: days without activity are mirrored to the vault but not published.
     publish_empty_days: bool = False
     # USD per million tokens [input, output, cache_read]; adds to/overrides the

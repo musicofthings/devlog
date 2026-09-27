@@ -192,10 +192,14 @@ Proposed after the roadmap closed, ordered by value:
    (`.snakemake/log`) runs under each active project, plus `pipeline_dirs`, appear in day
    notes, project hubs, and new `DevLog/Pipelines/` hubs; failed runs become open threads.
    Notebooks a session edited are linked from the day note.
-3. **Literature linking:** PMIDs, DOIs, and arXiv IDs in prompts become vault links, matched
-   to Zotero citekeys via Better BibTeX when it's running.
-4. **Presentation export:** `devlog deck --week|--month|--project` writes a slide outline
-   (for Gamma or PowerPoint) from the rollups, at the `public_detail` level you choose.
+3. ✅ **Literature linking.** DOIs, PMIDs, PMC IDs, and arXiv IDs in prompts become vault
+   links on day notes, project and topic hubs, Home, and a `DevLog/Literature.md` index.
+   With Zotero + Better BibTeX running, each is matched (by identifier, not fuzzy title) to
+   a citekey and linked as `[[@citekey]]`; hits are cached in the vault.
+4. ✅ **Review decks.** `devlog deck --week|--month|--quarter|--project|--since/--until`
+   writes a slide outline (`---` between slides) for Gamma, Marp, or PowerPoint, gated by
+   `--detail` (defaults to `public_detail`) and redaction. `/devlog-deck` can hand it to a
+   connected Gamma.
 5. **Write access for agents over MCP** (opt-in `mcp_write`): `close_thread`, `add_note`,
    `log_decision`, below the managed markers only.
 6. **Packaging:** PyPI release, CHANGELOG, `devlog doctor`, mypy in CI, RSS and site search.

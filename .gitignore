@@ -8,6 +8,8 @@ build/
 .venv/
 .superpowers/
 .devlog-*.md
+# `devlog deck` outlines can hold private detail; never commit them by accident.
+devlog-deck*.md
 
 # Claude Code / context-engineering-kit session artifacts -- but track
 # .claude/commands/ (shipped slash commands are meant to be committed)
