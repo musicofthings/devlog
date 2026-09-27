@@ -22,6 +22,7 @@ COMMANDS = (
     "devlog-status",
     "devlog-obsidian",
     "devlog-audit",
+    "devlog-deck",
 )
 
 SURFACES = {

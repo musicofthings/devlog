@@ -17,6 +17,8 @@ Transcripts never leave your machine unless you explicitly allow the (redacted) 
 | **Obsidian knowledge graph** | Day notes linked to project, work-type, and topic hubs; weekly, monthly, and quarterly rollups; a Home dashboard with streaks and a heatmap; Bases views and per-project canvases. |
 | **What happened, not just how long** | Your commits that day, open threads captured from agent recaps (tick them off in Obsidian), related days, repo README and open PRs on each project hub. |
 | **Pipeline runs** | Nextflow and Snakemake runs from your project folders (and any `pipeline_dirs`): pipeline, version, profile, status, and duration in the day note, a hub per pipeline, and every failed run as an open thread. Vault only. |
+| **Literature** | DOIs, PubMed/PMC IDs, and arXiv IDs you mention become links in the vault, matched to your Zotero library (`[[@citekey]]`) through Better BibTeX, with a Literature index and references on project and topic hubs. |
+| **Review decks** | `devlog deck --week` / `--month` / `--quarter` / `--project` writes a slide outline for Gamma, Marp, or PowerPoint, at the privacy level you choose. |
 | **Tokens and cost** | Tokens per model, and an API-equivalent cost estimate per day, project, and period. |
 | **Local-first extras** | Optional [Ollama](https://ollama.com) models for semantic related days, period retros, and writing the post itself. None of it leaves your machine. |
 | **Explainable** | `devlog publish --dry-run --explain` shows exactly which sources, names, settings, and writer shaped the day's post. |
@@ -32,7 +34,7 @@ pip install -e ".[dev]"          # add ,mcp for the agent-memory server: ".[dev,
 devlog init                      # config, Obsidian vault detection, nightly schedule
 ```
 
-This installs a `devlog` command: `devlog run` (the default), `init`, `publish`, `hide`, `unhide`, `delete`, `obsidian`, `audit`, and `mcp`. Everything below also works as `python main.py …`, which needs no install step.
+This installs a `devlog` command: `devlog run` (the default), `init`, `publish`, `hide`, `unhide`, `delete`, `obsidian`, `audit`, `deck`, and `mcp`. Everything below also works as `python main.py …`, which needs no install step.
 
 ## Use
 
@@ -231,6 +233,7 @@ Layout after publish — the vault is a linked knowledge graph, not a pile of di
 | `DevLog/Quarterly/YYYY-Qn.md` | Quarterly rollup, same shape, plus its months | its days, months, projects, prev/next quarter |
 | `DevLog/DevLog Home.md` | Dashboard: totals, streaks, API-equivalent cost, projects (with open-thread counts), work types, topics, recent days, quarters, months, weeks, an embedded Bases view, a Heatmap Calendar block, optional Dataview queries | everything |
 | `DevLog/Topics/<topic>.md` | Topic hub (scanpy, Nextflow, GATK, variant calling, FHIR, PyTorch, … or your own): days, projects, co-occurring topics, and a **Literature & notes** area that's never overwritten — put Zotero citekeys here | every day/project where the topic came up |
+| `DevLog/Literature.md` | Every paper you mentioned (DOI, PMID, PMC, arXiv), newest first: link, Zotero citekey when found, projects, days | its projects and days; `[[@citekey]]` literature notes |
 | `DevLog/Pipelines/<pipeline>.md` | Pipeline hub (e.g. `nf-core-sarek`): every run with version, status, duration, profile, and project; versions used; recent failures with their error | every day and project that ran it |
 | `DevLog/Canvas/<project>.canvas` | JSON Canvas: project hub → last 12 active days → top topics. Regenerated until you rearrange it; then it's yours (delete to regenerate) | hub, days, topics |
 | `DevLog/DevLog.base` | Obsidian **Bases** views (Days, Projects, Weeks) over the note properties — no community plugin needed. Written once; edit it freely | — |
@@ -279,6 +282,23 @@ period_retros = true                    # a short retro in weekly and monthly no
 ollama_model = "llama3.2"
 ollama_url = "http://localhost:11434"
 ```
+
+**Literature and Zotero.** Paper identifiers in what you asked for — DOIs (including `doi.org` links and bioRxiv/medRxiv), `PMID: …` or PubMed links, `PMC…` IDs, and arXiv IDs — are picked up per project and linked from the day note, project hub, topic hubs (*References seen with this topic*), `DevLog/Literature.md`, and Home. They never reach the public post. With Zotero running and [Better BibTeX](https://retorque.re/zotero-better-bibtex/) installed, each one is looked up in your library and, when it's there, linked as `[[@citekey]]` — the note name the Zotero Integration plugin gives literature notes — with the citekey in the day's `citekeys` property. Hits are cached in `DevLog/.devlog/citekeys.json`; a paper you add to Zotero later is linked on the next refresh. If Zotero is closed, devlog makes one attempt per refresh and moves on. To turn lookups off, or point at another port:
+
+```toml
+zotero_url = ""   # default: http://localhost:23119/better-bibtex/json-rpc
+```
+
+**Review decks.** `devlog deck` turns the vault into a slide outline — Markdown with `---` between slides, which Gamma (Create → Paste in text → card-by-card), Marp, and most Markdown-to-slides tools split on:
+
+```bash
+devlog deck --week                              # the latest week, at public_detail
+devlog deck --month 2026-09 --detail verbatim --out devlog-deck.md
+devlog deck --quarter --project atlas
+devlog deck --since 2026-09-01 --until 2026-09-15
+```
+
+Slides: at a glance (active days, time, commits, PRs, pipeline runs, streak, cost), where the time went, kinds of work, highlights, shipped, pipelines, stack & topics, next steps, and reading. `--detail` works like `public_detail` and defaults to it, because decks travel: `summary` shows totals and kinds of work only; `projects` adds project names, counts, pipelines, and catalog topics (never your custom topics); `verbatim` adds what you asked for, commit and PR titles, pipeline errors, open threads, and papers. Redaction patterns and presets apply at every level. `devlog-deck*.md` is git-ignored so a private deck isn't committed to the public site by accident. `/devlog-deck` in Claude Code can hand the outline straight to a connected Gamma.
 
 **Agent memory (MCP).** `devlog mcp` serves the vault index to coding agents over stdio (read-only), so a new session can recall prior work before starting:
 
@@ -377,7 +397,7 @@ The feed page shows a small status line — "Last published: 2026-08-06 (2026-08
 
 ## Slash commands for AI coding assistants
 
-If you use Claude Code, Codex, Cursor, or Grok Build to work in a repo with devlog installed, you can drive it with `/devlog-init`, `/devlog-publish`, `/devlog-delete`, `/devlog-hide`, `/devlog-unhide`, `/devlog-status`, `/devlog-obsidian`, and `/devlog-audit` instead of typing the CLI commands yourself. Each command just tells the assistant which `devlog` commands to run and how to handle the output (e.g. `/devlog-delete` and `/devlog-hide` always confirm with you before running the real, non-dry-run action, and `/devlog-audit` shows a `--no-commit` rewrite before anything is pushed).
+If you use Claude Code, Codex, Cursor, or Grok Build to work in a repo with devlog installed, you can drive it with `/devlog-init`, `/devlog-publish`, `/devlog-delete`, `/devlog-hide`, `/devlog-unhide`, `/devlog-status`, `/devlog-obsidian`, `/devlog-audit`, and `/devlog-deck` instead of typing the CLI commands yourself. Each command just tells the assistant which `devlog` commands to run and how to handle the output (e.g. `/devlog-delete` and `/devlog-hide` always confirm with you before running the real, non-dry-run action, and `/devlog-audit` shows a `--no-commit` rewrite before anything is pushed).
 
 All five surfaces are generated from one source per command in `commands/`. Edit `commands/<name>.md`, then run `python -m devlog.commands_sync`. CI fails if the generated files are stale (`--check`).
 

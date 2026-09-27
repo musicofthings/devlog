@@ -178,6 +178,10 @@ def main(argv: list[str] | None = None) -> int:
         from devlog.obsidian import cmd_obsidian
 
         return cmd_obsidian(argv[1:])
+    if argv and argv[0] == "deck":
+        from devlog.deck import cmd_deck
+
+        return cmd_deck(argv[1:])
     if argv and argv[0] == "audit":
         from devlog.audit import cmd_audit
 

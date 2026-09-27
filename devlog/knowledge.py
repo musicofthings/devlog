@@ -13,6 +13,7 @@ from collections import Counter
 from datetime import date
 
 from devlog.digest import basename, total_active_minutes
+from devlog.literature import reference_dicts
 from devlog.models import SessionDigest
 from devlog.noise import headline_task, is_injected_prompt, is_low_signal_prompt
 from devlog.pipelines import run_thread
@@ -176,6 +177,8 @@ def build_day_meta(
                 "commits": resolver.commits(identities[slug], day),
                 "pull_requests": resolver.pull_requests(identities[slug], day),
                 "notebooks": _notebooks(group),
+                "references": reference_dicts(
+                    [m for m in messages if not is_injected_prompt(m)]),
             }
         )
     projects.sort(key=lambda p: (-p["minutes"], p["slug"]))
@@ -260,6 +263,7 @@ def parse_post_meta(
                 "tasks": tasks,
                 "files": [],
                 "tools": project_tools,
+                "references": reference_dicts(tasks),
             }
         )
     sessions = match.group("sessions")

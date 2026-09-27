@@ -296,6 +296,12 @@ def refresh_vault(cfg: DevlogConfig, days: dict[str, dict] | None = None) -> dic
         # A day note deleted by hand in Obsidian stays deleted.
         present = existing_day_notes(folder_root)
         days = {d: m for d, m in days.items() if d in present}
+    from devlog.literature import BetterBibTeX, CitekeyResolver
+
+    citekeys = CitekeyResolver(
+        BetterBibTeX(cfg.zotero_url) if cfg.zotero_url.strip() else None,
+        folder_root / ".devlog" / "citekeys.json",
+    )
     try:
         save_index(folder_root, days)
         state = load_state(folder_root)
@@ -308,8 +314,10 @@ def refresh_vault(cfg: DevlogConfig, days: dict[str, dict] | None = None) -> dic
             canvas_hashes=state["canvas_hashes"],
             project_info=project_info,
             prices=price_table(cfg.model_prices),
+            citekeys=citekeys,
             **_local_models(cfg, folder_root),
         )
+        citekeys.save()
         save_index(
             folder_root,
             days,

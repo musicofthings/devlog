@@ -30,6 +30,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from devlog.knowledge import headline, is_empty_day
+from devlog.literature import as_reference
 from devlog.pricing import estimate, format_cost, merge_tokens, price_table
 from devlog.related import Corpus, cosine_neighbors, day_document
 from devlog.topics import TopicDetector
@@ -52,6 +53,8 @@ MONTHLY_DIR = "Monthly"
 QUARTERLY_DIR = "Quarterly"
 TOPICS_DIR = "Topics"
 PIPELINES_DIR = "Pipelines"
+LITERATURE_NAME = "Literature"
+HUB_REFERENCES = 15
 CANVAS_DIR = "Canvas"
 MAX_HUB_RUNS = 100
 PROJECT_HUB_RUNS = 10
@@ -274,6 +277,9 @@ class Graph:
     def topic_rel(self, slug: str) -> str:
         return self._rel(TOPICS_DIR, slug)
 
+    def literature_rel(self) -> str:
+        return self._rel(LITERATURE_NAME)
+
     def pipeline_rel(self, slug: str) -> str:
         return self._rel(PIPELINES_DIR, slug)
 
@@ -376,6 +382,42 @@ def _run_line(g: Graph, run: dict, display: dict[str, str], *, day: str | None =
     return line
 
 
+def _ref_link(ref: dict) -> str:
+    """`[[@citekey]] ([doi:…](url))` when Zotero knows the paper, else the plain link."""
+    r = as_reference(ref)
+    link = f"[{safe_text(r.label)}](<{r.url}>)"
+    return f"[[@{ref['citekey']}]] ({link})" if ref.get("citekey") else link
+
+
+def all_references(days: dict[str, dict]) -> dict[str, dict]:
+    """key -> {ref, days, projects}, from every project of every day."""
+    out: dict[str, dict] = {}
+    for d in sorted(days):
+        for p in days[d].get("projects") or []:
+            for ref in p.get("references") or []:
+                key = f"{ref['kind']}:{ref['id']}".lower()
+                entry = out.setdefault(key, {"ref": ref, "days": [], "projects": [],
+                                             "topics": set()})
+                if d not in entry["days"]:
+                    entry["days"].append(d)
+                if p["slug"] not in entry["projects"]:
+                    entry["projects"].append(p["slug"])
+                entry["topics"].update(p.get("topics") or [])
+    return out
+
+
+def _cite(days: dict[str, dict], citekeys) -> None:
+    """Attach Zotero citekeys to the (annotated, never-persisted) references."""
+    if citekeys is None:
+        return
+    for meta in days.values():
+        for p in meta.get("projects") or []:
+            for ref in p.get("references") or []:
+                citekey = citekeys(as_reference(ref))
+                if citekey:
+                    ref["citekey"] = citekey
+
+
 def all_runs(days: dict[str, dict]) -> list[tuple[str, dict]]:
     """(day, run) pairs, newest first."""
     out = [(d, r) for d in days for r in days[d].get("runs") or []]
@@ -412,6 +454,9 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
     prs = sum(len(p.get("pull_requests") or []) for p in projects)
     if prs:
         fm.append(f"pull_requests: {prs}")
+    refs = [r for p in projects for r in p.get("references") or []]
+    if refs:
+        fm.append(f"references: {len(refs)}")
     runs = meta.get("runs") or []
     if runs:
         fm.append(f"pipeline_runs: {len(runs)}")
@@ -431,6 +476,9 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
     topics = meta.get("topics") or []
     if topics:
         fm += _yaml_list("topics", [g.topic(t, topic_names.get(t, t)) for t in topics])
+    citekeys = list(dict.fromkeys(r["citekey"] for r in refs if r.get("citekey")))
+    if citekeys:
+        fm += _yaml_list("citekeys", [f"[[@{k}]]" for k in citekeys])
     pipelines = {r["slug"]: r["pipeline"] for r in runs}
     if pipelines:
         fm += _yaml_list("pipelines", [g.pipeline(sl, n) for sl, n in pipelines.items()])
@@ -475,6 +523,9 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
             if p.get("files"):
                 body.append("- **Files:** " + ", ".join(f"`{f.replace('`', '')}`"
                                                         for f in p["files"]))
+            if p.get("references"):
+                body.append("- **References:** " + " · ".join(
+                    _ref_link(r) for r in p["references"]))
             if p.get("notebooks"):
                 body.append("- **Notebooks:** " + ", ".join(
                     f"[{safe_text(nb['name'])}](<file:///{nb['path'].lstrip('/')}>)"
@@ -620,6 +671,15 @@ def render_project(g: Graph, slug: str, days: dict[str, dict], names: Counter,
         body += [_checkbox(t, done, f" · {g.day(d)}") for t, d in threads[:MAX_HUB_THREADS]]
         if len(threads) > MAX_HUB_THREADS:
             body.append(f"- … {len(threads) - MAX_HUB_THREADS} older thread(s) in day notes")
+    refs = [e for e in all_references(days).values() if slug in e["projects"]]
+    if refs:
+        refs.sort(key=lambda e: e["days"][-1], reverse=True)
+        body += ["", "## References", ""]
+        body += [f"- {_ref_link(e['ref'])} · {g.day(e['days'][-1])}"
+                 for e in refs[:HUB_REFERENCES]]
+        if len(refs) > HUB_REFERENCES:
+            more = len(refs) - HUB_REFERENCES
+            body.append(f"- … {more} more on {g.link(g.literature_rel(), 'Literature')}")
     runs = [(d, r) for d, r in all_runs(days) if r.get("project_slug") == slug]
     if runs:
         body += ["", "## Pipeline runs", ""]
@@ -930,6 +990,12 @@ def render_home(g: Graph, days: dict[str, dict], display: dict[str, str],
     if work:
         body += ["## Work types", "",
                  " · ".join(f"{g.work(w)} ×{n}" for w, n in work.most_common()), ""]
+    refs = all_references(days)
+    if refs:
+        cited = sum(1 for e in refs.values() if e["ref"].get("citekey"))
+        body += ["## Literature", "",
+                 f"{g.link(g.literature_rel(), 'Literature')}: **{len(refs)}** paper(s) "
+                 f"mentioned · **{cited}** in Zotero", ""]
     pipeline_runs = Counter()
     pipeline_names: dict[str, str] = {}
     for _, run in all_runs(days):
@@ -1155,7 +1221,33 @@ def render_topic(g: Graph, slug: str, name: str, category: str, days: dict[str, 
                           for p in (hits or meta.get("projects") or []))
         focus = headline({"projects": hits} if hits else meta)
         body.append(f"| {g.day(d, table=True)} | {names} | {safe_text(focus, table=True)} |")
+    refs = [e for e in all_references(days).values() if slug in e["topics"]]
+    if refs:
+        refs.sort(key=lambda e: e["days"][-1], reverse=True)
+        body += ["", "## References seen with this topic", ""]
+        body += [f"- {_ref_link(e['ref'])} · {g.day(e['days'][-1])}"
+                 for e in refs[:HUB_REFERENCES]]
     return _compose(fm, body, g.path(g.topic_rel(slug)), default_tail=TOPIC_TAIL)
+
+
+def render_literature(g: Graph, refs: dict[str, dict], display: dict[str, str]) -> str:
+    """Every paper identifier you mentioned, newest first, with its Zotero citekey."""
+    entries = sorted(refs.values(), key=lambda e: (e["days"][-1], e["ref"]["id"]), reverse=True)
+    cited = sum(1 for e in entries if e["ref"].get("citekey"))
+    fm = ["type: devlog-literature", f"references: {len(entries)}", f"in_zotero: {cited}"]
+    fm += _yaml_list("tags", ["devlog", "devlog/literature"], quote=False)
+    body = ["# Literature", "",
+            f"> **{len(entries)}** paper(s) mentioned in your sessions · **{cited}** matched "
+            "in Zotero (Better BibTeX). Unmatched ones link to the publisher, PubMed, or arXiv.",
+            "", "| Reference | Zotero | Projects | Days | Last |", "|---|---|---|---:|---|"]
+    for e in entries:
+        ref = e["ref"]
+        r = as_reference(ref)
+        zotero = f"[[@{ref['citekey']}\\|@{ref['citekey']}]]" if ref.get("citekey") else ""
+        projects = ", ".join(g.project(p, display.get(p), table=True) for p in e["projects"])
+        body.append(f"| [{safe_text(r.label, table=True)}](<{r.url}>) | {zotero} | {projects} | "
+                    f"{len(e['days'])} | {g.day(e['days'][-1], table=True)} |")
+    return _compose(fm, body, g.path(g.literature_rel()))
 
 
 CANVAS_DAYS = 12
@@ -1267,7 +1359,7 @@ def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
                   detector: TopicDetector | None = None,
                   canvas_hashes: dict[str, str] | None = None,
                   project_info=None, prices: dict | None = None,
-                  embedder=None, retro=None) -> dict:
+                  embedder=None, retro=None, citekeys=None) -> dict:
     """Regenerate every managed note from `days`. Writes only changed files.
 
     Returns written/removed paths plus the updated persisted state
@@ -1278,6 +1370,7 @@ def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
     topic_names = detector.names
     raw_days = days
     days = annotate(raw_days, detector, embedder)
+    _cite(days, citekeys)
     names = _project_names(days)
     display = {slug: c.most_common(1)[0][0] for slug, c in names.items()}
     written: list[Path] = []
@@ -1337,6 +1430,13 @@ def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
         by_pipeline.setdefault(run["slug"], []).append((d, run))
     for slug, runs in by_pipeline.items():
         emit(g.pipeline_rel(slug), render_pipeline(g, slug, runs, display))
+    refs = all_references(active_days)
+    literature = g.path(g.literature_rel())
+    if refs:
+        emit(g.literature_rel(), render_literature(g, refs, display))
+    elif literature.exists() and END in literature.read_text(encoding="utf-8") \
+            and _is_untouched(literature):
+        literature.unlink()
     weeks = sorted({iso_week(d) for d in days})
     for week in weeks:
         emit(g.period_rel("week", week),
