@@ -11,6 +11,7 @@ from pathlib import Path
 
 from devlog.models import RawSession, SessionEvent
 from devlog.sources.base import modified_since, register
+from devlog.threads import TurnRecap
 
 _SKIP_USER_SOURCES = {"system"}
 _CHROME_PREFIXES = (
@@ -89,6 +90,13 @@ def parse_events_file(path: Path) -> RawSession | None:
         fh = path.open(encoding="utf-8")
     except (OSError, UnicodeError):
         return None
+    recap = TurnRecap()
+
+    def flush_recap() -> None:
+        done = recap.flush()
+        if done is not None:
+            events.append(SessionEvent(timestamp=done[0], threads=done[1]))
+
     with fh:
         for line in fh:
             line = line.strip()
@@ -125,8 +133,14 @@ def parse_events_file(path: Path) -> RawSession | None:
                     continue
                 if _is_chrome_user(content, data.get("source")):
                     continue
+                flush_recap()
                 events.append(SessionEvent(timestamp=ts, user_message=_truncate(content)))
                 continue
+
+            if etype == "assistant.message":
+                said = data.get("content")
+                if isinstance(said, str) and said.strip():
+                    recap.assistant(ts, said)
 
             if etype in {"tool.execution_start", "assistant.message"}:
                 requests: list[dict] = []
@@ -157,6 +171,7 @@ def parse_events_file(path: Path) -> RawSession | None:
                         )
                     )
 
+    flush_recap()
     if not timestamps or not events:
         return None
     if project_path is None:

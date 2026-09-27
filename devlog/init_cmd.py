@@ -140,7 +140,10 @@ def build_config_from_prompts() -> DevlogConfig:
 
 # Settings init never asks about; they're edited in config.toml by hand, so
 # re-running init must not reset them to defaults.
-UNPROMPTED_FIELDS = ("project_aliases", "topics", "redact_patterns", "publish_empty_days")
+UNPROMPTED_FIELDS = (
+    "project_aliases", "topics", "redact_patterns", "publish_empty_days", "model_prices",
+    "related_backend", "period_retros", "ollama_url", "ollama_embed_model", "ollama_model",
+)
 
 
 def carry_over_unprompted(cfg: DevlogConfig, cfg_path: Path) -> list[str]:

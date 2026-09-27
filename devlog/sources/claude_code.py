@@ -151,6 +151,9 @@ def parse_session_file(path: Path) -> RawSession | None:
                 tokens_in = _as_int(usage.get("input_tokens"))
                 tokens_out = _as_int(usage.get("output_tokens"))
                 tokens_cache_read = _as_int(usage.get("cache_read_input_tokens"))
+                model = msg.get("model")
+                # "<synthetic>" marks harness-generated turns, not a billed model.
+                model = model if isinstance(model, str) and not model.startswith("<") else None
 
                 content = msg.get("content", [])
                 if isinstance(content, list):
@@ -179,6 +182,7 @@ def parse_session_file(path: Path) -> RawSession | None:
                                 tokens_in=tokens_in,
                                 tokens_out=tokens_out,
                                 tokens_cache_read=tokens_cache_read,
+                                model=model,
                             )
                         )
                 else:
@@ -207,6 +211,7 @@ def parse_session_file(path: Path) -> RawSession | None:
                                 tokens_in=tokens_in if i == 0 else 0,
                                 tokens_out=tokens_out if i == 0 else 0,
                                 tokens_cache_read=tokens_cache_read if i == 0 else 0,
+                                model=model if i == 0 else None,
                             )
                         )
 

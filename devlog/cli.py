@@ -8,9 +8,10 @@ from datetime import datetime
 from pathlib import Path
 
 from devlog.config import DEFAULT_SOURCES, DevlogConfig, load_config
-from devlog.digest import slice_for_date
+from devlog.digest import name_projects, slice_for_date
 from devlog.models import RawSession
 from devlog.privacy import configure_redaction
+from devlog.projects import ProjectResolver, count_commits
 from devlog.publish import scan_start
 from devlog.summarize import generate_post
 
@@ -126,6 +127,9 @@ def cmd_run(argv: list[str] | None = None) -> int:
 
     configure_redaction(cfg.redact_patterns)
     digests = slice_for_date(raw_sessions, target_date, tz)
+    resolver = ProjectResolver(cfg.project_aliases)
+    name_projects(digests, resolver)
+    commit_counts = count_commits([d.project_path for d in digests], resolver, target_date)
 
     print(f"=== Found {len(digests)} session(s) for {target_date} ===\n")
     post = generate_post(
@@ -133,6 +137,7 @@ def cmd_run(argv: list[str] | None = None) -> int:
         model=cfg.model,
         allow_external_api=cfg.allow_external_api,
         public_detail=cfg.public_detail,
+        commit_counts=commit_counts,
     )
     print("=== Daily post ===\n")
     print(post)

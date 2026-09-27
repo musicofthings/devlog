@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import re
 
-from devlog.digest import basename, build_raw_digest, total_active_minutes
+from devlog.digest import basename, build_raw_digest, project_label, total_active_minutes
 from devlog.models import SessionDigest
 from devlog.noise import headline_task
 from devlog.privacy import redact_sensitive_text
@@ -67,11 +67,30 @@ def summarize_with_claude(
     return _clamp_sentences(text)
 
 
+STACK_SIZE = 4
+
+
+def _stack(sessions: list[SessionDigest]) -> list[str]:
+    """Recognized tools/libraries (built-in topic catalog only, never custom topics)."""
+    from devlog.topics import TopicDetector
+
+    detector = TopicDetector()
+    texts = [m for s in sessions for m in s.user_messages]
+    texts += [basename(f) for s in sessions for f in s.files_touched]
+    found = detector.detect(texts)
+    return [detector.names[t] for t in found][:STACK_SIZE]
+
+
+def _shipped(commit_counts: dict[str, int] | None) -> str:
+    total = sum((commit_counts or {}).values())
+    return f"Shipped {total} commit(s)." if total else ""
+
+
 def _work_by_project(sessions: list[SessionDigest]) -> dict[str, list[str]]:
     """Generic work types per project, classified locally from the prompts."""
     grouped: dict[str, tuple[list[str], dict[str, int]]] = {}
     for s in sessions:
-        project = redact_sensitive_text(basename(s.project_path))
+        project = project_label(s)
         texts, tools = grouped.setdefault(project, ([], {}))
         texts.extend(s.user_messages)
         for k, v in s.tool_calls.items():
@@ -80,7 +99,9 @@ def _work_by_project(sessions: list[SessionDigest]) -> dict[str, list[str]]:
 
 
 def summarize_with_template(
-    sessions: list[SessionDigest], detail: str = "verbatim"
+    sessions: list[SessionDigest],
+    detail: str = "verbatim",
+    commit_counts: dict[str, int] | None = None,
 ) -> str:
     """Deterministic fallback -- no API key required.
 
@@ -91,10 +112,10 @@ def summarize_with_template(
     if not sessions:
         return "No coding activity logged today."
     if detail != "verbatim":
-        return _summarize_redacted(sessions, detail)
+        return _summarize_redacted(sessions, detail, commit_counts)
 
     projects = sorted(
-        {redact_sensitive_text(basename(s.project_path)) for s in sessions}
+        {project_label(s) for s in sessions}
     )
     total_minutes = total_active_minutes(sessions)
     all_tools = {}
@@ -108,7 +129,7 @@ def summarize_with_template(
     tasks: list[str] = []
     seen_projects: set[str] = set()
     for s in sessions:
-        project = redact_sensitive_text(basename(s.project_path))
+        project = project_label(s)
         first = headline_task(s.user_messages)
         if first and project not in seen_projects:
             task = redact_sensitive_text(first)
@@ -123,6 +144,8 @@ def summarize_with_template(
         parts.append("I worked on " + "; ".join(tasks) + ".")
     else:
         parts.append(f"I recorded activity in {len(sessions)} coding session(s).")
+    if _shipped(commit_counts):
+        parts.append(_shipped(commit_counts))
     if top_tools:
         parts.append("Tools: " + ", ".join(f"{k} ({v}x)" for k, v in top_tools) + ".")
     else:
@@ -131,7 +154,9 @@ def summarize_with_template(
     return _clamp_sentences(" ".join(parts))
 
 
-def _summarize_redacted(sessions: list[SessionDigest], detail: str) -> str:
+def _summarize_redacted(
+    sessions: list[SessionDigest], detail: str, commit_counts: dict[str, int] | None = None
+) -> str:
     total_minutes = total_active_minutes(sessions)
     work = _work_by_project(sessions)
     if detail == "summary":
@@ -141,6 +166,8 @@ def _summarize_redacted(sessions: list[SessionDigest], detail: str) -> str:
         parts = [f"Today I logged {total_minutes:.0f} active min in {len(work)} project(s)."]
         if kinds:
             parts.append("Work: " + ", ".join(kinds) + ".")
+        if _shipped(commit_counts):
+            parts.append(_shipped(commit_counts))
         return _clamp_sentences(" ".join(parts))
     projects = sorted(work)
     parts = [f"Today I logged {total_minutes:.0f} active min across {', '.join(projects)}."]
@@ -149,6 +176,11 @@ def _summarize_redacted(sessions: list[SessionDigest], detail: str) -> str:
         parts.append("Work: " + "; ".join(described[:3]) + ".")
     else:
         parts.append(f"I recorded activity in {len(sessions)} coding session(s).")
+    if _shipped(commit_counts):
+        parts.append(_shipped(commit_counts))
+    stack = _stack(sessions)
+    if stack:
+        parts.append("Stack: " + ", ".join(stack) + ".")
     return _clamp_sentences(" ".join(parts))
 
 
@@ -158,16 +190,20 @@ def generate_post(
     *,
     allow_external_api: bool = False,
     public_detail: str = "verbatim",
+    commit_counts: dict[str, int] | None = None,
 ) -> str:
     # Empty day: never spend tokens on the API. "summary" is two numbers and
     # a list of work types; a model adds only cost and a chance to embellish.
     if not sessions or public_detail == "summary":
-        return summarize_with_template(sessions, public_detail)
+        return summarize_with_template(sessions, public_detail, commit_counts)
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     # Compact digest for the LLM path; full digest remains available for audits.
     # Below "verbatim", prompts/files/commands never reach the model either.
     raw_digest = build_raw_digest(sessions, compact=True, detail=public_detail)
+    if commit_counts:
+        raw_digest += "\nCommits shipped: " + ", ".join(
+            f"{name} {n}" for name, n in sorted(commit_counts.items()))
     if api_key and allow_external_api:
         try:
             post = summarize_with_claude(
@@ -180,4 +216,4 @@ def generate_post(
                 return redact_sensitive_text(post)
         except Exception as e:  # network/auth issues -> don't crash the pipeline
             print(f"[warn] Claude summarization failed ({e}); falling back to template.")
-    return summarize_with_template(sessions, public_detail)
+    return summarize_with_template(sessions, public_detail, commit_counts)

@@ -10,7 +10,9 @@ directly; the only subprocess is `git log` for a day's commits.
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -198,3 +200,96 @@ class ProjectResolver:
                 }
             )
         return commits
+
+
+def count_commits(project_paths: list[str], resolver: ProjectResolver, day: date) -> dict[str, int]:
+    """Your commits that day per canonical project name (each repo counted once)."""
+    counts: dict[str, int] = {}
+    seen_roots: set[Path] = set()
+    for path in project_paths:
+        project = resolver.resolve(path)
+        if project.root is None or project.root in seen_roots:
+            continue
+        seen_roots.add(project.root)
+        n = len(resolver.commits(project, day))
+        if n:
+            counts[project.name] = counts.get(project.name, 0) + n
+    return counts
+
+
+_README_NAMES = ("README.md", "README.rst", "README.txt", "README", "readme.md", "Readme.md")
+README_CHARS = 400
+
+
+def readme_summary(root: Path) -> str | None:
+    """First prose paragraph of the repo README (skips headings, badges, HTML)."""
+    for name in _README_NAMES:
+        path = root / name
+        if path.is_file():
+            break
+    else:
+        return None
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    text = re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.DOTALL)
+    paragraph: list[str] = []
+    in_code = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        noise = (not stripped or stripped.startswith(("#", "<", "[![", "!["))
+                 or set(stripped) <= set("=-*_ "))
+        if noise:
+            if paragraph:
+                break
+            continue
+        paragraph.append(stripped)
+    if not paragraph:
+        return None
+    summary = redact_sensitive_text(" ".join(paragraph))
+    return summary if len(summary) <= README_CHARS else summary[: README_CHARS - 1] + "…"
+
+
+def open_pull_requests(repo_url: str, runner: GitRunner | None = None) -> list[dict]:
+    """Open PRs via the GitHub CLI when it's installed and authenticated; else []."""
+    if runner is None:
+        if shutil.which("gh") is None:
+            return []
+        runner = _default_git
+    slug = repo_url.removeprefix("https://github.com/")
+    try:
+        out = runner(["gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "10",
+                      "--json", "number,title,url,isDraft"], Path.cwd())
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if out.returncode != 0:
+        return []
+    try:
+        rows = json.loads(out.stdout or "[]")
+    except json.JSONDecodeError:
+        return []
+    return [
+        {"number": r["number"], "title": redact_sensitive_text(str(r.get("title", ""))),
+         "url": r.get("url"), "draft": bool(r.get("isDraft"))}
+        for r in rows if isinstance(r, dict) and isinstance(r.get("number"), int)
+    ]
+
+
+def project_info(root: str | None, repo_url: str | None) -> dict:
+    """What a project hub shows about the repo itself (README blurb, open PRs)."""
+    info: dict = {}
+    if root and Path(root).is_dir():
+        summary = readme_summary(Path(root))
+        if summary:
+            info["readme"] = summary
+    if repo_url:
+        prs = open_pull_requests(repo_url)
+        if prs:
+            info["pull_requests"] = prs
+    return info

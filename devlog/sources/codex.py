@@ -128,6 +128,7 @@ def parse_rollout_file(path: Path) -> RawSession | None:
     # Cumulative totals last seen, used to convert total_token_usage to deltas.
     prev_totals = {"input_tokens": 0, "output_tokens": 0, "cached_input_tokens": 0}
     recap = TurnRecap()
+    model: str | None = None
 
     def flush_recap() -> None:
         done = recap.flush()
@@ -160,6 +161,12 @@ def parse_rollout_file(path: Path) -> RawSession | None:
             if not isinstance(payload, dict):
                 payload = {}
 
+            if etype == "turn_context":
+                m = payload.get("model")
+                if isinstance(m, str) and m:
+                    model = m
+                continue
+
             if etype == "session_meta":
                 sid = payload.get("session_id") or payload.get("id")
                 if isinstance(sid, str) and sid:
@@ -191,6 +198,7 @@ def parse_rollout_file(path: Path) -> RawSession | None:
                                 tokens_in=_as_int(last.get("input_tokens")),
                                 tokens_out=_as_int(last.get("output_tokens")),
                                 tokens_cache_read=_as_int(last.get("cached_input_tokens")),
+                                model=model,
                             )
                         )
                         # Keep the cumulative baseline in sync even though this
@@ -215,6 +223,7 @@ def parse_rollout_file(path: Path) -> RawSession | None:
                                 tokens_in=deltas["input_tokens"],
                                 tokens_out=deltas["output_tokens"],
                                 tokens_cache_read=deltas["cached_input_tokens"],
+                                model=model,
                             )
                         )
                 continue

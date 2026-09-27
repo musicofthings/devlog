@@ -15,6 +15,7 @@ from datetime import date
 from devlog.digest import basename, total_active_minutes
 from devlog.models import SessionDigest
 from devlog.noise import headline_task, is_injected_prompt, is_low_signal_prompt
+from devlog.pricing import merge_tokens
 from devlog.privacy import redact_sensitive_text
 from devlog.projects import Project, ProjectResolver
 from devlog.worktypes import WORK_TYPE_DESCRIPTIONS, classify
@@ -30,12 +31,15 @@ _SLUG_BAD_RE = re.compile(r"[^a-z0-9._-]+")
 #   verbatim: "... across a, b. I worked on a: <prompt>; b: <prompt>. Tools: X (3x)."
 #   projects: "... across a, b. Work: code-review on a; feature on b."
 #   summary:  "... in 2 project(s). Work: code-review, feature."
+# optionally followed by "Shipped N commit(s)." and "Stack: Python, scanpy."
 _TEMPLATE_RE = re.compile(
     r"Today I logged (?P<minutes>\d+) active min "
     r"(?:in (?P<count>\d+) project\(s\)|across (?P<projects>.+?))\.\s*"
     r"(?:I worked on (?P<tasks>.+?)\.\s*)?"
     r"(?:Work: (?P<work>.+?)\.\s*)?"
     r"(?:I recorded activity in (?P<sessions>\d+) coding session\(s\)\.\s*)?"
+    r"(?:Shipped (?P<commits>\d+) commit\(s\)\.\s*)?"
+    r"(?:Stack: (?P<stack>[^.]+(?:\.[A-Za-z][^.]*)*)\.\s*)?"
     r"(?:Tools: (?P<tools>.+?)\.|The recorded source was (?P<sources>.+?)\.)?\s*$",
     re.DOTALL,
 )
@@ -136,8 +140,10 @@ def build_day_meta(
                 "files": [f for f, _ in files.most_common(MAX_FILES)],
                 "tools": {k: v for k, v in tools.most_common(MAX_TOOLS)},
                 "tokens": _tokens(group),
+                "tokens_by_model": merge_tokens(*(d.tokens_by_model for d in group)),
                 "threads": _threads(group),
                 "repo_url": identities[slug].repo_url,
+                "root": str(identities[slug].root) if identities[slug].root else None,
                 "commits": resolver.commits(identities[slug], day),
             }
         )

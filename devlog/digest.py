@@ -72,6 +72,12 @@ def slice_for_date(
             digest.tokens_in += e.tokens_in
             digest.tokens_out += e.tokens_out
             digest.tokens_cache_read += e.tokens_cache_read
+            if e.tokens_in or e.tokens_out or e.tokens_cache_read:
+                bucket = digest.tokens_by_model.setdefault(
+                    e.model or "unknown", {"in": 0, "out": 0, "cache": 0})
+                bucket["in"] += e.tokens_in
+                bucket["out"] += e.tokens_out
+                bucket["cache"] += e.tokens_cache_read
             if e.threads:
                 # The latest recap of the day supersedes earlier ones.
                 digest.threads = list(e.threads)
@@ -123,6 +129,18 @@ def total_active_minutes(sessions: list[SessionDigest]) -> float:
     )
 
 
+def project_label(s: SessionDigest) -> str:
+    """Public name of a session's project: the resolved identity when known."""
+    return redact_sensitive_text(s.project_name or basename(s.project_path))
+
+
+def name_projects(sessions: list[SessionDigest], resolver) -> list[SessionDigest]:
+    """Stamp each digest with its canonical project name (in place; returns it)."""
+    for s in sessions:
+        s.project_name = resolver.resolve(s.project_path).name
+    return sessions
+
+
 def basename(path: str) -> str:
     return path.replace("\\", "/").rstrip("/").split("/")[-1] or path
 
@@ -137,12 +155,12 @@ def _clip(text: str, limit: int) -> str:
 def _redacted_digest(sessions: list[SessionDigest], *, anonymize: bool) -> str:
     from devlog.worktypes import classify
 
-    names = sorted({redact_sensitive_text(basename(s.project_path)) for s in sessions})
+    names = sorted({project_label(s) for s in sessions})
     label = {n: (f"project {i}" if anonymize else n) for i, n in enumerate(names, 1)}
     lines = [f"{total_active_minutes(sessions):.0f} min, {len(sessions)} session(s): "
              + ", ".join(label[n] for n in names)]
     for s in sessions:
-        name = label[redact_sensitive_text(basename(s.project_path))]
+        name = label[project_label(s)]
         lines.append(f"\n[{name}, {s.duration_minutes:.0f}m, src={s.source}]")
         work = classify(s.user_messages, s.tool_calls)
         if work:
@@ -178,7 +196,7 @@ def build_raw_digest(
     total_minutes = total_active_minutes(sessions)
     if compact:
         projects = sorted(
-            {redact_sensitive_text(basename(s.project_path)) for s in sessions}
+            {project_label(s) for s in sessions}
         )
         lines.append(f"{total_minutes:.0f} min, {len(sessions)} session(s): {', '.join(projects)}")
     else:
@@ -190,7 +208,7 @@ def build_raw_digest(
 
     for s in sessions:
         label = (
-            redact_sensitive_text(basename(s.project_path))
+            project_label(s)
             if compact
             else redact_sensitive_text(s.project_path)
         )

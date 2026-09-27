@@ -29,7 +29,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from devlog.knowledge import headline, is_empty_day
-from devlog.related import Corpus, day_document
+from devlog.pricing import estimate, format_cost, merge_tokens, price_table
+from devlog.related import Corpus, cosine_neighbors, day_document
 from devlog.topics import TopicDetector
 from devlog.worktypes import describe
 
@@ -47,6 +48,7 @@ PROJECTS_DIR = "Projects"
 WORK_DIR = "Work"
 WEEKLY_DIR = "Weekly"
 MONTHLY_DIR = "Monthly"
+QUARTERLY_DIR = "Quarterly"
 TOPICS_DIR = "Topics"
 CANVAS_DIR = "Canvas"
 RECENT_DAYS = 14
@@ -212,6 +214,12 @@ def _token_line(tokens: dict | None) -> str:
             f" · {_fmt_tokens(tokens.get('cache', 0))} cached")
 
 
+def _cost(g: Graph, *token_maps) -> tuple[float, str]:
+    """(USD, display text) for any number of tokens_by_model maps."""
+    usd, unpriced = estimate(merge_tokens(*token_maps), g.prices)
+    return usd, format_cost(usd, unpriced) if (usd or unpriced) else ""
+
+
 def _add_tokens(total: dict[str, int], tokens: dict | None) -> None:
     for key in ("in", "out", "cache"):
         total[key] = total.get(key, 0) + int((tokens or {}).get(key) or 0)
@@ -226,7 +234,8 @@ def thread_key(text: str) -> str:
 class Graph:
     """Path and link conventions for one vault folder."""
 
-    def __init__(self, vault: Path, folder: str) -> None:
+    def __init__(self, vault: Path, folder: str, prices: dict | None = None) -> None:
+        self.prices = prices if prices is not None else price_table()
         self.vault = vault
         self.folder = folder.strip().strip("/\\")
         self.root = vault / self.folder if self.folder else vault
@@ -248,7 +257,11 @@ class Graph:
         return self._rel(WORK_DIR, slug)
 
     def period_rel(self, kind: str, label: str) -> str:
-        return self._rel(WEEKLY_DIR if kind == "week" else MONTHLY_DIR, label)
+        folder = {"week": WEEKLY_DIR, "month": MONTHLY_DIR, "quarter": QUARTERLY_DIR}[kind]
+        return self._rel(folder, label)
+
+    def period(self, kind: str, label: str, *, table: bool = False) -> str:
+        return self.link(self.period_rel(kind, label), label, table=table)
 
     def home_rel(self) -> str:
         return self._rel(HOME_NAME)
@@ -293,6 +306,13 @@ def month_of(day: str) -> str:
     return day[:7]
 
 
+def quarter_of(day: str) -> str:
+    return f"{day[:4]}-Q{(int(day[5:7]) - 1) // 3 + 1}"
+
+
+PERIOD_KEY = {"week": iso_week, "month": month_of, "quarter": quarter_of}
+
+
 def _project_names(days: dict[str, dict]) -> dict[str, Counter]:
     names: dict[str, Counter] = {}
     for meta in days.values():
@@ -334,6 +354,9 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
     commits = sum(len(p.get("commits") or []) for p in projects)
     if commits:
         fm.append(f"commits: {commits}")
+    day_usd = _cost(g, *(p.get("tokens_by_model") for p in projects))[0]
+    if day_usd:
+        fm.append(f"cost_usd: {day_usd:.2f}")
     open_threads = [t for p in projects for t in p.get("threads") or []
                     if thread_key(safe_text(t)) not in done]
     if open_threads:
@@ -383,7 +406,8 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
                     f"{safe_text(k)} ×{v}" for k, v in p["tools"].items()))
             token_line = _token_line(p.get("tokens"))
             if token_line:
-                body.append(f"- **Tokens:** {token_line}")
+                cost = _cost(g, p.get("tokens_by_model"))[1]
+                body.append(f"- **Tokens:** {token_line}" + (f" · {cost}" if cost else ""))
             if p.get("threads"):
                 body.append("- **Open threads** (from the session recap):")
                 body += ["    " + _checkbox(t, done) for t in p["threads"]]
@@ -430,8 +454,9 @@ def project_open_threads(slug: str, days: dict[str, dict], done: set[str]) -> li
 
 def render_project(g: Graph, slug: str, days: dict[str, dict], names: Counter,
                    done: set[str], topic_names: dict[str, str] | None = None,
-                   canvas: bool = False) -> str:
+                   canvas: bool = False, info: dict | None = None) -> str:
     topic_names = topic_names or {}
+    info = info or {}
     entries = []
     for day in sorted(days, reverse=True):
         for p in days[day].get("projects") or []:
@@ -464,6 +489,9 @@ def render_project(g: Graph, slug: str, days: dict[str, dict], names: Counter,
         fm.append(f"commits: {commits}")
     if any(tokens.values()):
         fm += [f"tokens_in: {tokens['in']}", f"tokens_out: {tokens['out']}"]
+    project_usd = _cost(g, *(p.get("tokens_by_model") for _, _, p in entries))[0]
+    if project_usd:
+        fm.append(f"cost_usd: {project_usd:.2f}")
     fm += _yaml_list("work_types", [g.work(w) for w, _ in work.most_common()])
     if topics:
         fm += _yaml_list("topics", [g.topic(t, topic_names.get(t, t))
@@ -477,8 +505,9 @@ def render_project(g: Graph, slug: str, days: dict[str, dict], names: Counter,
         summary += f" · **{commits}** commit(s)"
     body = [f"# {display}", "", "> [!summary] Activity", summary]
     token_line = _token_line(tokens)
+    hub_usd, hub_cost = _cost(g, *(p.get("tokens_by_model") for _, _, p in entries))
     if token_line:
-        body.append(f"> Tokens: {token_line}")
+        body.append(f"> Tokens: {token_line}" + (f" · {hub_cost}" if hub_cost else ""))
     body.append("")
     if repo:
         body.append(f"**Repo:** [{repo.removeprefix('https://')}]({repo})")
@@ -495,6 +524,13 @@ def render_project(g: Graph, slug: str, days: dict[str, dict], names: Counter,
     if files:
         body.append("**Frequently touched files:** " + ", ".join(
             f"`{f.replace('`', '')}` ({n})" for f, n in files.most_common(10)))
+    if info.get("readme"):
+        body += ["", "## About", "", "> " + safe_text(info["readme"])]
+    if info.get("pull_requests"):
+        body += ["", "## Open pull requests", ""]
+        for pr in info["pull_requests"]:
+            draft = " (draft)" if pr.get("draft") else ""
+            body.append(f"- [#{pr['number']}]({pr['url']}) {safe_text(pr['title'])}{draft}")
     if threads:
         body += ["", "## Open threads", ""]
         body += [_checkbox(t, done, f" · {g.day(d)}") for t, d in threads[:MAX_HUB_THREADS]]
@@ -539,8 +575,15 @@ def _period_bounds(kind: str, label: str) -> tuple[date, date]:
         year, num = label.split("-W")
         start = date.fromisocalendar(int(year), int(num), 1)
         return start, start + timedelta(days=6)
-    start = date.fromisoformat(f"{label}-01")
-    nxt = date(start.year + (start.month == 12), start.month % 12 + 1, 1)
+    if kind == "quarter":
+        year, q = label.split("-Q")
+        start = date(int(year), 3 * (int(q) - 1) + 1, 1)
+        months = 3
+    else:
+        start = date.fromisoformat(f"{label}-01")
+        months = 1
+    month_index = start.month - 1 + months
+    nxt = date(start.year + month_index // 12, month_index % 12 + 1, 1)
     return start, nxt - timedelta(days=1)
 
 
@@ -548,9 +591,11 @@ def _period_review(g: Graph, kind: str, start: date, days: dict[str, dict],
                    in_period: list[str], display: dict[str, str],
                    topic_names: dict[str, str]) -> list[str]:
     """Deterministic retro: this period vs the previous one, plus what was new."""
-    key = iso_week if kind == "week" else month_of
+    key = PERIOD_KEY[kind]
     prev_label = key((start - timedelta(days=1)).isoformat())
-    link = g.week if kind == "week" else g.month
+
+    def link(label: str) -> str:
+        return g.period(kind, label)
     prev_days = [d for d in days if key(d) == prev_label]
 
     def mins(ds: list[str]) -> int:
@@ -589,13 +634,23 @@ def _period_review(g: Graph, kind: str, start: date, days: dict[str, dict],
     return lines + [""] if len(lines) > 2 else []
 
 
+def _plain(line: str) -> str:
+    """Markdown line -> plain text for model prompts ([[a|b]] -> b, no bold)."""
+    line = re.sub(r"\[\[[^\]|]*\|([^\]]*)\]\]", r"\1", line)
+    line = re.sub(r"\[\[([^\]]*)\]\]", r"\1", line)
+    return line.replace("**", "").replace("\\|", "|")
+
+
 def render_period(g: Graph, kind: str, label: str, labels: list[str], days: dict[str, dict],
-                  display: dict[str, str], topic_names: dict[str, str] | None = None) -> str:
-    """Weekly or monthly rollup."""
+                  display: dict[str, str], topic_names: dict[str, str] | None = None,
+                  retro=None) -> str:
+    """Weekly, monthly, or quarterly rollup."""
     topic_names = topic_names or {}
     start, end = _period_bounds(kind, label)
-    key = iso_week if kind == "week" else month_of
-    link = g.week if kind == "week" else g.month
+    key = PERIOD_KEY[kind]
+
+    def link(other: str) -> str:
+        return g.period(kind, other)
     in_period = sorted(d for d in days if key(d) == label)
     active = [d for d in in_period if not is_empty_day(days[d])]
     minutes = sum(int(days[d].get("active_minutes") or 0) for d in in_period)
@@ -624,20 +679,37 @@ def render_period(g: Graph, kind: str, label: str, labels: list[str], days: dict
 
     nav = [f"← {link(prev_l)}" if prev_l else "← (first)", g.home(),
            f"{link(next_l)} →" if next_l else "(latest) →"]
+    span = f"{start:%b %d} – {end:%b %d, %Y}"
     if kind == "week":
         months = sorted({month_of(start.isoformat()), month_of(end.isoformat())})
         nav.insert(1, " / ".join(g.month(m) for m in months))
-        title, span = label, f"{start:%b %d} – {end:%b %d, %Y}"
+        title = label
+    elif kind == "month":
+        nav.insert(1, g.period("quarter", quarter_of(start.isoformat())))
+        title = f"{start:%B %Y}"
     else:
-        title, span = f"{start:%B %Y}", f"{start:%b %d} – {end:%b %d, %Y}"
+        title = label.replace("-", " ")
     stats = f"{span} · **{len(active)}** active day(s) · **{minutes:,}** active min"
     token_line = _token_line(tokens)
+    period_usd, period_cost = _cost(
+        g, *(p.get("tokens_by_model") for d in active for p in days[d].get("projects") or []))
+    if period_usd:
+        fm.append(f"cost_usd: {period_usd:.2f}")
     body = [" · ".join(nav), "", f"# {title}", "", stats]
     if token_line:
-        body += ["", f"Tokens: {token_line}"]
+        body += ["", f"Tokens: {token_line}" + (f" · {period_cost}" if period_cost else "")]
     body.append("")
     if active:
-        body += _period_review(g, kind, start, days, in_period, display, topic_names)
+        review = _period_review(g, kind, start, days, in_period, display, topic_names)
+        if retro is not None:
+            facts = [stats, *review[2:]] + [
+                f"{d}: {headline(days[d])}" for d in active if headline(days[d])]
+            text = retro(label, "\n".join(_plain(f) for f in facts if f))
+            if text:
+                review = [*review, "> [!quote] Retro (written by a local model)",
+                          *[f"> {safe_text(line)}" for line in text.splitlines() if line.strip()],
+                          ""]
+        body += review
     if project_days:
         body += ["## Projects", "", "| Project | Days | Min | Commits |", "|---|---:|---:|---:|"]
         for slug, n in project_days.most_common():
@@ -651,6 +723,9 @@ def render_period(g: Graph, kind: str, label: str, labels: list[str], days: dict
     if kind == "month":
         weeks = sorted({iso_week(d) for d in in_period})
         body += ["**Weeks:** " + " · ".join(g.week(w) for w in weeks), ""]
+    if kind == "quarter":
+        months = sorted({month_of(d) for d in in_period})
+        body += ["**Months:** " + " · ".join(g.month(m) for m in months), ""]
     body += ["## Days", ""]
     for d in in_period:
         meta = days[d]
@@ -687,17 +762,22 @@ def render_home(g: Graph, days: dict[str, dict], display: dict[str, str],
     open_by_project = {s: len(project_open_threads(s, days, done)) for s in proj_days}
 
     current, longest = streaks(days)
+    total_usd, total_cost = _cost(
+        g, *(p.get("tokens_by_model") for d in active for p in days[d].get("projects") or []))
     topics = Counter(t for d in active for t in days[d].get("topics") or [])
     fm = ["type: devlog-home", f"active_days: {len(active)}", f"active_minutes: {total}",
           f"open_threads: {sum(open_by_project.values())}",
           f"current_streak: {current}", f"longest_streak: {longest}"]
+    if total_usd:
+        fm.append(f"cost_usd: {total_usd:.2f}")
     fm += _yaml_list("tags", ["devlog", "devlog/home"], quote=False)
     body = [f"# {HOME_NAME}", "",
             f"**{len(active)}** active day(s) · **{total:,}** active min · "
             f"**{len(proj_days)}** project(s) · **{sum(open_by_project.values())}** open thread(s)"
             + (f" · {g.day(active[-1])} → {g.day(active[0])}" if active else ""),
             "",
-            f"🔥 Streak: **{current}** day(s) · longest **{longest}**",
+            f"🔥 Streak: **{current}** day(s) · longest **{longest}**"
+            + (f" · API-equivalent cost {total_cost}" if total_cost else ""),
             ""]
     if proj_days:
         body += ["## Projects", "", "| Project | Days | Min | Open threads | Last active |",
@@ -725,6 +805,9 @@ def render_home(g: Graph, days: dict[str, dict], display: dict[str, str],
             line += f" — {focus}" if focus else ""
             body.append(line)
         body.append("")
+    quarters = sorted({quarter_of(d) for d in days}, reverse=True)
+    if quarters:
+        body += ["## Quarters", "", " · ".join(g.period("quarter", q) for q in quarters), ""]
     if months:
         body += ["## Months", "", " · ".join(g.month(m) for m in months), ""]
     if weeks:
@@ -822,7 +905,8 @@ def render_base(folder: str) -> str:
 # ---------------------------------------------------------------- phase 3
 
 
-def annotate(days: dict[str, dict], detector: TopicDetector) -> dict[str, dict]:
+def annotate(days: dict[str, dict], detector: TopicDetector,
+             embedder=None) -> dict[str, dict]:
     """Copy of `days` with derived, never-persisted keys.
 
     Topics (per project and per day) and related days are recomputed on every
@@ -843,15 +927,25 @@ def annotate(days: dict[str, dict], detector: TopicDetector) -> dict[str, dict]:
         meta["topics"] = sorted(day_topics)
 
     active = {d: m for d, m in out.items() if not is_empty_day(m)}
-    corpus = Corpus({
-        d: day_document(m, [detector.names.get(t, t) for t in m["topics"]])
-        for d, m in active.items()
-    })
+    docs = {d: day_document(m, [detector.names.get(t, t) for t in m["topics"]])
+            for d, m in active.items()}
+    corpus = Corpus(docs)
+    vectors = None
+    if embedder is not None and docs:
+        try:
+            vectors = embedder(docs)  # optional local embeddings (devlog.local_llm)
+        except Exception:  # noqa: BLE001 - any backend failure falls back to TF-IDF
+            vectors = None
     for d in active:
+        if vectors is not None:
+            pairs = [(o, sc, corpus.shared_terms(d, o))
+                     for o, sc in cosine_neighbors(vectors, d, k=3)]
+        else:
+            pairs = corpus.similar(d, k=3)
         out[d]["related"] = [
             {"date": other, "score": round(score, 3), "terms": terms,
              "projects": [p["slug"] for p in out[other].get("projects") or []]}
-            for other, score, terms in corpus.similar(d, k=3)
+            for other, score, terms in pairs
         ]
     return out
 
@@ -1011,20 +1105,30 @@ def harvest_thread_state(paths: list[Path], done: set[str]) -> set[str]:
     return (done - unchecked) | checked
 
 
+def _latest(days: dict[str, dict], slug: str, key: str) -> str | None:
+    for d in sorted(days, reverse=True):
+        for p in days[d].get("projects") or []:
+            if p["slug"] == slug and p.get(key):
+                return p[key]
+    return None
+
+
 def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
                   done: set[str] | None = None, *,
                   detector: TopicDetector | None = None,
-                  canvas_hashes: dict[str, str] | None = None) -> dict:
+                  canvas_hashes: dict[str, str] | None = None,
+                  project_info=None, prices: dict | None = None,
+                  embedder=None, retro=None) -> dict:
     """Regenerate every managed note from `days`. Writes only changed files.
 
     Returns written/removed paths plus the updated persisted state
     (`done_threads`, `canvas_hashes`) for the caller to save.
     """
-    g = Graph(vault, folder)
+    g = Graph(vault, folder, prices)
     detector = detector or TopicDetector()
     topic_names = detector.names
     raw_days = days
-    days = annotate(raw_days, detector)
+    days = annotate(raw_days, detector, embedder)
     names = _project_names(days)
     display = {slug: c.most_common(1)[0][0] for slug, c in names.items()}
     written: list[Path] = []
@@ -1065,8 +1169,12 @@ def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
         canvases.add(slug)
 
     for slug, counter in names.items():
+        # project_info(root, repo_url) -> README blurb / open PRs; None keeps it offline.
+        info = project_info(_latest(days, slug, "root"), _latest(days, slug, "repo_url")) \
+            if project_info else None
         emit(g.project_rel(slug), render_project(g, slug, active_days, counter, done,
-                                                 topic_names, canvas=slug in canvases))
+                                                 topic_names, canvas=slug in canvases,
+                                                 info=info))
     work_types = {w for m in active_days.values() for w in m.get("work_types") or []}
     for slug in work_types:
         emit(g.work_rel(slug), render_work(g, slug, active_days, display))
@@ -1078,11 +1186,15 @@ def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
     weeks = sorted({iso_week(d) for d in days})
     for week in weeks:
         emit(g.period_rel("week", week),
-             render_period(g, "week", week, weeks, days, display, topic_names))
+             render_period(g, "week", week, weeks, days, display, topic_names, retro))
     months = sorted({month_of(d) for d in days})
     for month in months:
         emit(g.period_rel("month", month),
-             render_period(g, "month", month, months, days, display, topic_names))
+             render_period(g, "month", month, months, days, display, topic_names, retro))
+    quarters = sorted({quarter_of(d) for d in days})
+    for quarter in quarters:
+        emit(g.period_rel("quarter", quarter),
+             render_period(g, "quarter", quarter, quarters, days, display, topic_names))
     if days:
         emit(g.home_rel(), render_home(g, days, display, done, topic_names))
         base = g.root / f"{BASE_NAME}.base"
@@ -1096,6 +1208,7 @@ def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
     removed += _prune_stale(g.root / TOPICS_DIR, topics)
     removed += _prune_stale(g.root / WEEKLY_DIR, set(weeks))
     removed += _prune_stale(g.root / MONTHLY_DIR, set(months))
+    removed += _prune_stale(g.root / QUARTERLY_DIR, set(quarters))
     canvas_dir = g.root / CANVAS_DIR
     if canvas_dir.is_dir():
         for path in canvas_dir.glob("*.canvas"):

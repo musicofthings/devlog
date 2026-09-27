@@ -66,6 +66,10 @@ class Corpus:
         top = [t for t, _ in sorted(shared.items(), key=lambda kv: -kv[1])[:3]]
         return sum(shared.values()), top
 
+    def shared_terms(self, a: str, b: str) -> list[str]:
+        """Top terms two documents share (explains a link from any backend)."""
+        return self._score(self.vectors.get(a, {}), self.vectors.get(b, {}))[1]
+
     def similar(self, key: str, k: int = 3, min_score: float = MIN_SCORE,
                 exclude: set[str] | None = None) -> list[tuple[str, float, list[str]]]:
         """Nearest documents to `key`: (other_key, score, shared_terms)."""
@@ -112,3 +116,22 @@ def day_document(meta: dict, topic_names: list[str] | None = None) -> str:
     if not projects:
         parts.append(meta.get("summary") or "")
     return "\n".join(parts)
+
+
+def cosine_neighbors(vectors: dict[str, list[float]], key: str, k: int = 3,
+                     min_score: float = 0.55) -> list[tuple[str, float]]:
+    """Nearest keys by cosine similarity of (embedding) vectors."""
+    base = vectors.get(key)
+    if not base:
+        return []
+    base_norm = math.sqrt(sum(x * x for x in base)) or 1.0
+    scored = []
+    for other, vec in vectors.items():
+        if other == key or not vec or len(vec) != len(base):
+            continue
+        norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+        score = sum(a * b for a, b in zip(base, vec, strict=True)) / (base_norm * norm)
+        if score >= min_score:
+            scored.append((other, score))
+    scored.sort(key=lambda x: (-x[1], x[0]))
+    return scored[:k]

@@ -18,6 +18,7 @@ from urllib.parse import unquote
 
 from devlog.models import RawSession, SessionEvent
 from devlog.sources.base import modified_since, register
+from devlog.threads import TurnRecap
 
 _USER_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL | re.IGNORECASE)
 _CHROME_MARKERS = (
@@ -191,6 +192,13 @@ def parse_session_dir(session_dir: Path) -> RawSession | None:
         fh = chat.open(encoding="utf-8")
     except (OSError, UnicodeError):
         return None
+    recap = TurnRecap()
+
+    def flush_recap() -> None:
+        done = recap.flush()
+        if done is not None:
+            events.append(SessionEvent(timestamp=done[0], threads=done[1]))
+
     with fh:
         for line in fh:
             line = line.strip()
@@ -221,8 +229,13 @@ def parse_session_dir(session_dir: Path) -> RawSession | None:
                     if ts is None:
                         continue
                     timestamps.append(ts)
+                    flush_recap()
                     events.append(SessionEvent(timestamp=ts, user_message=user_text))
             elif etype == "assistant":
+                said = "\n".join(_content_texts(obj.get("content")))
+                said_ts = timestamps[-1] if timestamps else fallback
+                if said and said_ts is not None:
+                    recap.assistant(said_ts, said)
                 calls = obj.get("tool_calls")
                 if not isinstance(calls, list):
                     continue
@@ -247,6 +260,7 @@ def parse_session_dir(session_dir: Path) -> RawSession | None:
                         )
                     )
 
+    flush_recap()
     if not events:
         return None
     if not timestamps:
