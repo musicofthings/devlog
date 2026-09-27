@@ -257,6 +257,9 @@ def test_package_metadata():
     data = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml")
                          .read_text(encoding="utf-8"))
     assert data["project"]["name"] == "daily-devlog"
+    assert data["project"]["license"] == "MIT"
+    assert (Path(__file__).resolve().parents[1] / "LICENSE").read_text(
+        encoding="utf-8").startswith("MIT License")
     assert data["project"]["scripts"] == {"devlog": "devlog.cli:main"}
     assert data["tool"]["setuptools"]["packages"]["find"]["include"] == ["devlog*"]
     assert __version__.count(".") == 2

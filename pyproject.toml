@@ -1,6 +1,7 @@
 # pyproject.toml
 [build-system]
-requires = ["setuptools>=68"]
+# 77+ for the SPDX `license` expression (PEP 639)
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,8 +10,10 @@ name = "daily-devlog"
 dynamic = ["version"]
 description = "Turn AI coding session logs into a public daily build log and a private Obsidian second brain"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
-authors = [{ name = "musicofthings" }]
+authors = [{ name = "Shibichakravarthy Kannan" }]
 keywords = [
   "devlog", "obsidian", "claude-code", "codex", "cursor", "mcp", "second-brain",
   "bioinformatics", "nextflow", "zotero",

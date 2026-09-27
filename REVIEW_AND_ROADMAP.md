@@ -207,7 +207,7 @@ Proposed after the roadmap closed, ordered by value:
 6. ✅ **Packaging and upkeep:** `daily-devlog` on PyPI (the command stays `devlog`) with a
    tag-triggered trusted-publishing workflow, `CHANGELOG.md`, `devlog doctor`,
    `devlog --version`, mypy clean and in CI, a package build check in CI, and an RSS feed
-   plus full-text search on the log page. Publishing waits on a license choice.
+   plus full-text search on the log page. Licensed MIT.
 
 ## Recommended Obsidian plugins
 
