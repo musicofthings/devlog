@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 import re
 import tomllib
-from dataclasses import asdict, dataclass, field
+import typing
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 PUBLISH_MODES = ("auto", "pr", "manual", "review")
@@ -28,6 +29,8 @@ DEFAULT_OBSIDIAN_ON_DELETE = "preserve"
 # review before anything is pushed to a public site.
 DEFAULT_PUBLISH_MODE = "manual"
 DEFAULT_MODEL = "claude-sonnet-5"
+PUBLIC_DETAIL_LEVELS = ("summary", "projects", "verbatim")
+DEFAULT_PUBLIC_DETAIL = "projects"
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -101,6 +104,18 @@ class DevlogConfig:
     obsidian_folder: str = DEFAULT_OBSIDIAN_FOLDER
     obsidian_daily_folder: str = DEFAULT_OBSIDIAN_DAILY_FOLDER
     obsidian_on_delete: str = DEFAULT_OBSIDIAN_ON_DELETE
+    # Folder name, repo name, or full path -> canonical project name (vault).
+    project_aliases: dict[str, str] = field(default_factory=dict)
+    # Extra vault topics: display name -> match terms (added to the built-in catalog).
+    topics: dict[str, list[str]] = field(default_factory=dict)
+    # How much of your prompts reaches the public post: "summary" (minutes and
+    # project count), "projects" (names + work types), or "verbatim" (quotes the
+    # first prompt per project). The private vault always keeps full detail.
+    public_detail: str = DEFAULT_PUBLIC_DETAIL
+    # Extra regexes redacted everywhere (MRNs, sample IDs, client names...).
+    redact_patterns: list[str] = field(default_factory=list)
+    # False: days without activity are mirrored to the vault but not published.
+    publish_empty_days: bool = False
 
     def __post_init__(self) -> None:
         self.claude_root = _norm_path(self.claude_root)
@@ -118,6 +133,7 @@ class DevlogConfig:
         self.obsidian_daily_folder = _norm_path(self.obsidian_daily_folder)
 
     def root_for(self, source: str) -> Path:
+        """Data root for a source. Unknown names are a bug, not a fallback."""
         mapping = {
             "claude_code": self.claude_root,
             "codex": self.codex_root,
@@ -129,7 +145,9 @@ class DevlogConfig:
             "vitreous": self.vitreous_root,
             "antigravity": self.antigravity_root,
         }
-        return Path(mapping.get(source, self.claude_root)).expanduser()
+        if source not in mapping:
+            raise KeyError(f"No data root configured for source {source!r}")
+        return Path(mapping[source]).expanduser()
 
     def validate(self) -> None:
         if self.publish_mode not in PUBLISH_MODES:
@@ -144,6 +162,31 @@ class DevlogConfig:
             )
         if not isinstance(self.allow_external_api, bool):
             raise ValueError("allow_external_api must be true or false")
+        if not isinstance(self.project_aliases, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) and v.strip()
+            for k, v in self.project_aliases.items()
+        ):
+            raise ValueError("project_aliases must be a table of \"name\" = \"canonical name\"")
+        if not isinstance(self.topics, dict) or not all(
+            isinstance(k, str) and k.strip() and isinstance(v, list)
+            and all(isinstance(t, str) and t.strip() for t in v)
+            for k, v in self.topics.items()
+        ):
+            raise ValueError('topics must be a table of "Name" = ["term", ...]')
+        if self.public_detail not in PUBLIC_DETAIL_LEVELS:
+            raise ValueError(
+                f"public_detail must be one of {', '.join(PUBLIC_DETAIL_LEVELS)}; "
+                f"got {self.public_detail!r}"
+            )
+        if not isinstance(self.publish_empty_days, bool):
+            raise ValueError("publish_empty_days must be true or false")
+        if not isinstance(self.redact_patterns, list):
+            raise ValueError("redact_patterns must be a list of regular expressions")
+        for pattern in self.redact_patterns:
+            try:
+                re.compile(pattern)
+            except (re.error, TypeError) as exc:
+                raise ValueError(f"redact_patterns: invalid regex {pattern!r}: {exc}") from exc
         if self.obsidian_on_delete not in OBSIDIAN_ON_DELETE:
             raise ValueError(
                 f"obsidian_on_delete must be one of {', '.join(OBSIDIAN_ON_DELETE)}; "
@@ -151,39 +194,29 @@ class DevlogConfig:
             )
 
 
+def _field_types() -> dict[str, object]:
+    return typing.get_type_hints(DevlogConfig)
+
+
 def load_config(path: Path | None = None) -> DevlogConfig | None:
+    """Read config.toml. Every DevlogConfig field is optional in the file."""
     cfg_path = path or default_config_path()
     if not cfg_path.exists():
         return None
     with cfg_path.open("rb") as f:
         data = tomllib.load(f)
-    cfg = DevlogConfig(
-        sources=list(data.get("sources") or DEFAULT_SOURCES),
-        claude_root=str(data.get("claude_root", "~/.claude")),
-        codex_root=str(data.get("codex_root", "~/.codex")),
-        cursor_root=str(data.get("cursor_root", "~/.cursor")),
-        grok_root=str(data.get("grok_root", "~/.grok")),
-        copilot_root=str(data.get("copilot_root", "~/.copilot")),
-        opencode_root=str(data.get("opencode_root", default_opencode_root())),
-        warp_root=str(data.get("warp_root", default_warp_root())),
-        vitreous_root=str(data.get("vitreous_root", "~/.vitreous")),
-        antigravity_root=str(data.get("antigravity_root", "~/.gemini")),
-        repo_path=str(data.get("repo_path", default_repo_path())),
-        publish_mode=str(data.get("publish_mode", DEFAULT_PUBLISH_MODE)),
-        schedule_time=str(data.get("schedule_time", "06:30")),
-        remote=str(data.get("remote", "origin")),
-        branch=str(data.get("branch", "main")),
-        model=str(data.get("model", DEFAULT_MODEL)),
-        allow_external_api=data.get("allow_external_api", False),
-        obsidian_vault=str(data.get("obsidian_vault", "")),
-        obsidian_folder=str(data.get("obsidian_folder", DEFAULT_OBSIDIAN_FOLDER)),
-        obsidian_daily_folder=str(
-            data.get("obsidian_daily_folder", DEFAULT_OBSIDIAN_DAILY_FOLDER)
-        ),
-        obsidian_on_delete=str(
-            data.get("obsidian_on_delete", DEFAULT_OBSIDIAN_ON_DELETE)
-        ),
-    )
+    types = _field_types()
+    kwargs: dict[str, object] = {}
+    for f in fields(DevlogConfig):
+        if f.name not in data:
+            continue
+        value = data[f.name]
+        if types[f.name] is str:
+            value = str(value)
+        kwargs[f.name] = value
+    if not kwargs.get("sources"):
+        kwargs["sources"] = list(DEFAULT_SOURCES)
+    cfg = DevlogConfig(**kwargs)
     cfg.validate()
     return cfg
 
@@ -193,35 +226,30 @@ def _toml_str(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def _toml_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
+    return _toml_str(str(value))
+
+
 def save_config(cfg: DevlogConfig, path: Path | None = None) -> Path:
     cfg.validate()
     cfg_path = path or default_config_path()
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
-    sources = ", ".join(_toml_str(s) for s in cfg.sources)
-    body = (
-        f"sources = [{sources}]\n"
-        f"claude_root = {_toml_str(cfg.claude_root)}\n"
-        f"codex_root = {_toml_str(cfg.codex_root)}\n"
-        f"cursor_root = {_toml_str(cfg.cursor_root)}\n"
-        f"grok_root = {_toml_str(cfg.grok_root)}\n"
-        f"copilot_root = {_toml_str(cfg.copilot_root)}\n"
-        f"opencode_root = {_toml_str(cfg.opencode_root)}\n"
-        f"warp_root = {_toml_str(cfg.warp_root)}\n"
-        f"vitreous_root = {_toml_str(cfg.vitreous_root)}\n"
-        f"antigravity_root = {_toml_str(cfg.antigravity_root)}\n"
-        f"repo_path = {_toml_str(cfg.repo_path)}\n"
-        f"publish_mode = {_toml_str(cfg.publish_mode)}\n"
-        f"schedule_time = {_toml_str(cfg.schedule_time)}\n"
-        f"remote = {_toml_str(cfg.remote)}\n"
-        f"branch = {_toml_str(cfg.branch)}\n"
-        f"model = {_toml_str(cfg.model)}\n"
-        f"allow_external_api = {'true' if cfg.allow_external_api else 'false'}\n"
-        f"obsidian_vault = {_toml_str(cfg.obsidian_vault)}\n"
-        f"obsidian_folder = {_toml_str(cfg.obsidian_folder)}\n"
-        f"obsidian_daily_folder = {_toml_str(cfg.obsidian_daily_folder)}\n"
-        f"obsidian_on_delete = {_toml_str(cfg.obsidian_on_delete)}\n"
-    )
-    cfg_path.write_text(body, encoding="utf-8")
+    scalars: list[str] = []
+    tables: list[str] = []
+    for f in fields(cfg):
+        value = getattr(cfg, f.name)
+        if isinstance(value, dict):
+            # A TOML table must come after every top-level key.
+            tables.append(f"\n[{f.name}]\n" + "".join(
+                f"{_toml_str(k)} = {_toml_value(v)}\n" for k, v in sorted(value.items())
+            ))
+        else:
+            scalars.append(f"{f.name} = {_toml_value(value)}\n")
+    cfg_path.write_text("".join(scalars) + "".join(tables), encoding="utf-8")
     return cfg_path
 
 

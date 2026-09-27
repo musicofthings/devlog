@@ -1,0 +1,52 @@
+
+.admin {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px dashed var(--line);
+}
+.admin summary {
+  cursor: pointer;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.85rem;
+  color: var(--mist);
+}
+.admin .row {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  flex-wrap: wrap;
+}
+.admin input[type="password"] {
+  flex: 1;
+  min-width: 12rem;
+  font-family: "IBM Plex Mono", monospace;
+  padding: 0.4rem 0.5rem;
+}
+.admin button {
+  font-family: "IBM Plex Mono", monospace;
+  cursor: pointer;
+}
+.admin .status {
+  font-size: 0.8rem;
+  color: var(--mist);
+  margin-top: 0.5rem;
+}
+.feed .delete-btn,
+.feed .hide-btn,
+.admin .unhide-btn {
+  margin-left: 0.75rem;
+  font-size: 0.78rem;
+  font-family: "IBM Plex Mono", monospace;
+  cursor: pointer;
+}
+.admin .hidden-list {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.85rem;
+}
+.admin .hidden-list li {
+  padding: 0.35rem 0;
+  border-top: 1px dashed var(--line);
+}

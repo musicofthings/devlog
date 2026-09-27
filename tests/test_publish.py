@@ -324,7 +324,7 @@ def test_publish_auto_resets_local_commit_when_push_fails(tmp_path: Path):
             return CompletedProcess(cmd, 0, stdout="M posts/2026-07-20.md\n", stderr="")
         if cmd[:2] == ["git", "push"]:
             return CompletedProcess(cmd, 1, stdout="", stderr="remote rejected")
-        if cmd[:3] == ["git", "reset", "--hard"]:
+        if cmd[:3] == ["git", "reset", "--keep"]:
             # Simulate HEAD~1 restoring the pre-publish tree (no post yet).
             (repo / "posts" / "2026-07-20.md").unlink(missing_ok=True)
             return CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -334,7 +334,7 @@ def test_publish_auto_resets_local_commit_when_push_fails(tmp_path: Path):
         publish_day(cfg, date(2026, 7, 20), force=True, git_run=fake_git)
 
     assert "local publish commit was reset" in str(excinfo.value)
-    assert any(c[:3] == ["git", "reset", "--hard"] and c[-1] == "HEAD~1" for c in calls)
+    assert any(c[:3] == ["git", "reset", "--keep"] and c[-1] == "HEAD~1" for c in calls)
     assert not (repo / "posts" / "2026-07-20.md").exists()
 
 

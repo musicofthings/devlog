@@ -31,6 +31,27 @@ def default_git(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+RESET_CMD = ["git", "reset", "--keep", "HEAD~1"]
+
+
+def undo_local_commit(repo: Path, git_run: GitRunner, what: str) -> str | None:
+    """Drop the unpushed commit devlog just made. Returns an error note, or None.
+
+    `--keep` (not `--hard`): files the commit touched go back to HEAD~1, but
+    any other uncommitted work in the checkout is left alone. If a local edit
+    overlaps the commit, git refuses instead of silently discarding it.
+    """
+    reset = git_run(RESET_CMD, repo)
+    if reset.returncode == 0:
+        return None
+    detail = (reset.stderr or reset.stdout or "git reset failed").strip()
+    return (
+        f"{what} commit is local but unpushed and `git reset --keep HEAD~1` refused to run, "
+        "likely because uncommitted changes touch files in that commit; commit or stash "
+        f"them, then run `git reset --keep HEAD~1` to restore (git said: {detail})"
+    )
+
+
 def git_paths(repo: Path, artifacts: list[Path]) -> list[str]:
     """Return unique repo-relative paths suitable for pathspec-safe git calls."""
     paths: list[str] = []

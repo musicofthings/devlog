@@ -113,6 +113,26 @@ Publishing always runs locally — your session transcripts never leave this mac
 
 With `publish_mode = review`, the nightly job writes `posts/` + `docs/log/` but does not push. After you edit the markdown, run `devlog publish --confirm --date YYYY-MM-DD` to commit and push (same recovery as auto if push fails).
 
+### Privacy: what reaches the public site
+
+Posts are public, and your prompts can contain things that shouldn't be (patient or sample identifiers, client names, unpublished results). Three settings control this. The private Obsidian vault always keeps full detail.
+
+```toml
+public_detail = "projects"      # summary | projects | verbatim
+redact_patterns = ['MRN\d{6}', 'S-\d{4}-\d+', '(?i)acme corp']
+publish_empty_days = false
+```
+
+- `public_detail = "projects"` (default): project names plus generic work types, e.g. *"Work: code-review and git-ops on vitreous."* No prompt text, file names, or commands.
+- `public_detail = "summary"`: minutes and a project count only.
+- `public_detail = "verbatim"`: the previous behavior, which quotes the first prompt per project.
+
+The same level applies to the digest sent to the LLM when `allow_external_api` is on.
+
+`redact_patterns` are your own regexes. Matches become `[REDACTED]` everywhere redaction runs: posts, the LLM digest, and vault notes. Use single-quoted TOML strings so backslashes stay literal.
+
+With `publish_empty_days = false`, a day with no activity is not committed (`skipped_empty`), but it is still written to the vault so streaks and weekly notes stay accurate.
+
 ### Offline Obsidian vault
 
 GitHub Pages stays the public site. Each successful local `posts/` write also mirrors into a private Obsidian vault (archive note + Daily Note embed) when `obsidian_vault` is set. Vault notes are **never** git-managed and are **preserved by default** on hide/delete.
@@ -124,19 +144,72 @@ obsidian_vault = "C:/Users/you/Documents/DevLog"   # filled by init
 obsidian_folder = "DevLog"
 obsidian_daily_folder = "Daily"
 obsidian_on_delete = "preserve"   # preserve | remove
+
+# Optional: fold folder/worktree/repo names into one project (vault only).
+# Keys match a folder name, a repo name, or a full path, case-insensitively.
+[project_aliases]
+"delete-post" = "devlog"      # a git worktree folder
+"window" = "devlog"
 ```
 
-Layout after publish:
+Projects are identified by walking up from each session's working directory to its git root and naming the project after the `origin` remote (worktrees resolve to their main repo). Sessions started in your home folder become a `home` project instead of your username. Folders outside git fall back to the folder name. `project_aliases` is applied on top.
 
-- `{vault}/DevLog/YYYY-MM-DD.md` — archive copy with YAML frontmatter
-- `{vault}/Daily/YYYY-MM-DD.md` — upserts a `%%devlog` region with `![[DevLog/YYYY-MM-DD]]` (does not clobber the rest of the daily note)
+Layout after publish — the vault is a linked knowledge graph, not a pile of disconnected days:
 
-Backfill posts that already exist in the repo:
+| Note | What it holds | Links to |
+|------|---------------|----------|
+| `DevLog/YYYY-MM-DD.md` | Day note: the post, then per-project detail: what you asked for, **your commits that day** (linked to GitHub), files, tools, **tokens**, and **open threads** as checkboxes | its projects, work types, week, month, prev/next active day, Home |
+| `DevLog/Projects/<project>.md` | Project hub: repo link, **open threads**, active days, minutes, commits, tokens, work mix, frequently touched files, timeline table | every day the project was worked on |
+| `DevLog/Work/<type>.md` | Work-type hub (`code-review`, `planning`, `bugfix`, `feature`, `refactor`, `testing`, `docs`, `ui-ux`, `git-ops`, `devops`, `data-analysis`, `learning`, `research`) | every day and project with that kind of work |
+| `DevLog/Weekly/YYYY-Www.md` | Weekly rollup: minutes and commits per project, tokens, work mix, quiet days | its days, projects, month(s), prev/next week |
+| `DevLog/Monthly/YYYY-MM.md` | Monthly rollup, same shape as weekly | its days, weeks, projects, prev/next month |
+| `DevLog/DevLog Home.md` | Dashboard: projects (with open-thread counts), work types, recent days, months, weeks, an embedded Bases view, optional Dataview queries | everything |
+| `DevLog/Topics/<topic>.md` | Topic hub (scanpy, Nextflow, GATK, variant calling, FHIR, PyTorch, … or your own): days, projects, co-occurring topics, and a **Literature & notes** area that's never overwritten — put Zotero citekeys here | every day/project where the topic came up |
+| `DevLog/Canvas/<project>.canvas` | JSON Canvas: project hub → last 12 active days → top topics. Regenerated until you rearrange it; then it's yours (delete to regenerate) | hub, days, topics |
+| `DevLog/DevLog.base` | Obsidian **Bases** views (Days, Projects, Weeks) over the note properties — no community plugin needed. Written once; edit it freely | — |
+| `Daily/YYYY-MM-DD.md` | Your daily note; devlog only upserts an embed between `%% devlog:daily:start %%` / `%% devlog:daily:end %%` | the day note |
+
+Obsidian features used:
+
+- **Properties** (`type`, `date`, `week`, `active_minutes`, `projects`, `work_types`, `sources`) — links inside properties count in the graph and backlinks, and work with Dataview/Bases.
+- **Nested tags** — `#devlog/project/<name>`, `#devlog/work/<type>`, `#devlog/project-hub`, `#devlog/work-hub`, `#devlog/week` — for tag-pane browsing and graph filters.
+- **Backlinks / graph view** — hubs are real notes, so "every day I touched vitreous" is the hub's backlinks. New vaults created by `devlog init` get graph color groups for hubs.
+- **Callouts, embeds, tables** — hubs render without plugins; Dataview queries on Home are optional (collapsed callout).
+
+Work types are classified locally and deterministically from your prompts (keyword rules in `devlog/worktypes.py`, with a tool-mix fallback) — nothing is sent anywhere. Project names are case-folded (`Gurukul` and `gurukul` share one hub; the other spelling becomes an alias). Harness-injected text (MCP tool manifests, AGENTS.md bootstraps, skill preambles) is filtered out of both posts and notes.
+
+**Open threads.** When an agent ends a turn with a "Next steps" / "Follow-ups" / "TODO" list (or `- [ ]` items), those items are captured locally from the Claude Code, Codex, and Cursor transcripts and shown as checkboxes on the day note and as an *Open threads* list on the project hub. Tick one in either place (plain checkbox or the Tasks plugin) and it stays ticked across regenerations and disappears from the hub; untick it in the day note to reopen it. Commits come from `git log` in each project's repo, limited to your `user.email`. Assistant text, commits, and tokens only ever go to the vault, never to the public post.
+
+**Topics, related days, reviews.** Topics are detected locally from what you asked, commit subjects, open threads, and file names, using a built-in catalog (bioinformatics, workflow, clinical, data/ML, languages, frameworks) plus your own:
+
+```toml
+[topics]
+"CRISPR screens" = ["crispr", "sgrna", "mageck"]
+"Variant interpretation" = ["acmg", "clinvar", "pathogenic"]
+```
+
+Topics are recomputed on each refresh, so `devlog obsidian --reindex` applies a new topic to your whole history. Each day note gets **Related days** (local TF-IDF similarity — no model, no network — with the shared terms shown). Weekly and monthly notes get a **Review** section (time vs. the previous period, new projects, first-time topics, threads raised), and Home shows your current/longest **streak** and a Heatmap Calendar block.
+
+**Agent memory (MCP).** `devlog mcp` serves the vault index to coding agents over stdio (read-only), so a new session can recall prior work before starting:
+
+```bash
+pip install -e ".[mcp]"
+claude mcp add devlog -- devlog mcp      # Claude Code
+codex mcp add devlog -- devlog mcp       # Codex CLI
+```
+
+Tools: `list_projects`, `recent_activity(days, project)`, `project_status(project)`, `open_threads(project)`, `search_log(query)`, `day_log(date)`. The index is reread on every call, so a long-running server sees each night's publish.
+
+**Your notes are safe.** Every generated note is a managed block ending in `%% devlog:end %%`; anything you write below that line (in day notes, hubs, weeklies, Home) is preserved on every refresh. Hubs with no remaining days are deleted only if you never wrote in them. A day note you delete by hand in Obsidian is not recreated. Per-day metadata lives in `DevLog/.devlog/index.json` (hidden from Obsidian); hubs are regenerated from it and only changed files are rewritten.
+
+Backfill posts that already exist in the repo (run once after upgrading — it also migrates old Daily Note embeds, which were wrapped in a `%%` comment and therefore invisible in Reading view):
 
 ```bash
 devlog obsidian --backfill --dry-run
-devlog obsidian --backfill
+devlog obsidian --backfill            # metadata recovered from post text
+devlog obsidian --backfill --rescan   # re-read local session logs for full per-project detail
 devlog obsidian --date 2026-08-13
+devlog obsidian --reindex             # regenerate hubs / weeklies / Home from the index only
 ```
 
 Hard delete leaves vault notes alone unless `obsidian_on_delete = remove` or you pass `--also-obsidian`. Soft-hide never touches Obsidian. A missing vault path warns and does not fail GitHub publish.
@@ -213,6 +286,8 @@ The feed page shows a small status line — "Last published: 2026-08-06 (2026-08
 ## Slash commands for AI coding assistants
 
 If you use Claude Code, Codex, Cursor, or Grok Build to work in a repo with devlog installed, you can drive it with `/devlog-init`, `/devlog-publish`, `/devlog-delete`, `/devlog-hide`, `/devlog-unhide`, `/devlog-status`, and `/devlog-obsidian` instead of typing the CLI commands yourself. Each command just tells the assistant which `devlog` commands to run and how to handle the output (e.g. `/devlog-delete` and `/devlog-hide` always confirm with you before running the real, non-dry-run action).
+
+All five surfaces are generated from one source per command in `commands/`. Edit `commands/<name>.md`, then run `python -m devlog.commands_sync`. CI fails if the generated files are stale (`--check`).
 
 | Tool | Where the commands live | Setup needed |
 |------|--------------------------|--------------|

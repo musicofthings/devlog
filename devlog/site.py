@@ -6,135 +6,36 @@ import html
 import json
 import re
 from datetime import date, datetime
+from importlib import resources
 from pathlib import Path
 
 from devlog.gitutil import GitRunner, default_git
 from devlog.hidden import load_hidden_dates
 from devlog.status import load_status
 
+_TEMPLATES = resources.files("devlog") / "templates"
+_PLACEHOLDER_RE = re.compile(r"@@([A-Z_]+)@@")
+
+
+def _template(name: str) -> str:
+    """HTML/CSS/JS kept as real files (devlog/templates/) instead of f-strings."""
+    # Normalize: a Windows checkout with core.autocrlf would otherwise leak \r.
+    return (_TEMPLATES / name).read_text(encoding="utf-8").replace("\r\n", "\n")
+
+
+def _fill(template: str, **values: str) -> str:
+    """Substitute @@NAME@@ markers in one pass, so inserted text is never re-scanned."""
+    return _PLACEHOLDER_RE.sub(lambda m: values[m.group(1)], template)
+
+
 _DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.md$")
 
 DELETE_WORKFLOW_FILE = "delete-post.yml"
 _GITHUB_REMOTE_RE = re.compile(r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$")
 
-SHARED_CSS = """
-* { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; }
-body {
-  font-family: "IBM Plex Sans", system-ui, sans-serif;
-  color: var(--foam);
-  background:
-    radial-gradient(
-      900px 480px at 85% -5%,
-      color-mix(in srgb, var(--amber) 14%, transparent),
-      transparent 55%
-    ),
-    linear-gradient(165deg, var(--bg-accent) 0%, var(--bg) 50%, var(--bg-accent) 100%);
-  min-height: 100vh;
-  transition: background 180ms ease, color 180ms ease;
-}
-a { color: var(--amber); text-decoration: none; }
-a:hover { text-decoration: underline; }
-.wrap {
-  max-width: 42rem;
-  margin: 0 auto;
-  padding: clamp(1.5rem, 4vw, 3rem);
-  padding-top: clamp(3.5rem, 6vw, 4.5rem);
-}
-.nav {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-  margin-bottom: 2rem;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.85rem;
-}
-h1, h2 {
-  font-family: "Fraunces", Georgia, serif;
-  color: var(--ink);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-html[data-theme="dark"] h1,
-html[data-theme="dark"] h2 { color: var(--paper); }
-h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 0 0 0.75rem; }
-.meta { color: var(--mist); font-size: 0.95rem; margin-bottom: 1.75rem; }
-.post-body {
-  line-height: 1.65;
-  font-size: 1.08rem;
-  color: var(--foam);
-}
-.post-body p { margin: 0 0 1rem; }
-.feed { list-style: none; padding: 0; margin: 0; }
-.feed li {
-  border-top: 1px solid var(--line);
-  padding: 1.1rem 0;
-}
-.feed li:last-child { border-bottom: 1px solid var(--line); }
-.feed a {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 1rem;
-}
-.feed .excerpt {
-  margin: 0.45rem 0 0;
-  color: var(--mist);
-  line-height: 1.5;
-}
-"""
+SHARED_CSS = _template("shared.css")
 
-ADMIN_CSS = """
-.admin {
-  margin-top: 2.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px dashed var(--line);
-}
-.admin summary {
-  cursor: pointer;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.85rem;
-  color: var(--mist);
-}
-.admin .row {
-  display: flex;
-  gap: 0.5rem;
-  margin: 0.75rem 0;
-  flex-wrap: wrap;
-}
-.admin input[type="password"] {
-  flex: 1;
-  min-width: 12rem;
-  font-family: "IBM Plex Mono", monospace;
-  padding: 0.4rem 0.5rem;
-}
-.admin button {
-  font-family: "IBM Plex Mono", monospace;
-  cursor: pointer;
-}
-.admin .status {
-  font-size: 0.8rem;
-  color: var(--mist);
-  margin-top: 0.5rem;
-}
-.feed .delete-btn,
-.feed .hide-btn,
-.admin .unhide-btn {
-  margin-left: 0.75rem;
-  font-size: 0.78rem;
-  font-family: "IBM Plex Mono", monospace;
-  cursor: pointer;
-}
-.admin .hidden-list {
-  margin: 0.75rem 0 0;
-  padding: 0;
-  list-style: none;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.85rem;
-}
-.admin .hidden-list li {
-  padding: 0.35rem 0;
-  border-top: 1px dashed var(--line);
-}
-"""
+ADMIN_CSS = _template("admin.css")
 
 FONT_LINKS = (
     '  <link rel="preconnect" href="https://fonts.googleapis.com" />\n'
@@ -230,30 +131,15 @@ def _md_to_paragraphs(body: str) -> str:
 
 
 def _page(title: str, body_html: str) -> str:
-    return f"""<!DOCTYPE html>
-<html lang="en" data-theme="light">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{html.escape(title)} · Daily Dev Log</title>
-{THEME_BOOT}
-  {FONT_LINKS}
-  <link rel="stylesheet" href="../assets/theme.css" />
-  <style>{SHARED_CSS}</style>
-</head>
-<body>
-{THEME_TOGGLE}
-  <div class="wrap">
-    <nav class="nav">
-      <a href="../index.html">Home</a>
-      <a href="index.html">Log</a>
-    </nav>
-    {body_html}
-  </div>
-  <script src="../assets/theme.js"></script>
-</body>
-</html>
-"""
+    return _fill(
+        _template("page.html"),
+        TITLE=html.escape(title),
+        THEME_BOOT=THEME_BOOT,
+        FONT_LINKS=FONT_LINKS,
+        SHARED_CSS=SHARED_CSS,
+        THEME_TOGGLE=THEME_TOGGLE,
+        BODY=body_html,
+    )
 
 
 def build_day_html(day: date, body: str) -> str:
@@ -295,233 +181,14 @@ def _admin_panel_html(
         hidden_block = (
             '<p class="status" id="devlog-hidden-list">No soft-hidden posts.</p>'
         )
-    return f"""
-<details class="admin" id="devlog-admin-details">
-  <summary>Admin: manage posts</summary>
-  <p class="status">
-    Paste a GitHub fine-grained personal access token scoped to
-    <code>{html.escape(github_repo)}</code> with <strong>Actions: read and write</strong>
-    permission only (not Contents). It is saved in this browser's local storage and
-    never sent anywhere except api.github.com.
-  </p>
-  <p class="status">
-    When creating it, set <strong>Repository access</strong> to
-    <strong>"Only select repositories"</strong> and pick this repo — choosing
-    <strong>"Public Repositories (read-only)"</strong> silently caps the token to
-    read-only no matter what you set Actions to below it, and Delete will fail with
-    "403 Resource not accessible by personal access token".
-  </p>
-  <div class="row">
-    <input type="password" id="devlog-token-input" placeholder="github_pat_..."
-           autocomplete="off" />
-    <button type="button" id="devlog-token-save">Save token</button>
-    <button type="button" id="devlog-token-clear">Clear token</button>
-  </div>
-  {hidden_block}
-  <p class="status" id="devlog-admin-status"></p>
-</details>
-<script>
-(function () {{
-  var REPO = {_js_string(github_repo)};
-  var WORKFLOW = {_js_string(DELETE_WORKFLOW_FILE)};
-  var BRANCH = {_js_string(branch)};
-  var STORAGE_KEY = "devlog-admin-token";
-  var statusEl = document.getElementById("devlog-admin-status");
-  var detailsEl = document.getElementById("devlog-admin-details");
-  var POLL_MS = 4000;
-  var POLL_MAX = 45;
-
-  function setStatus(msg) {{
-    if (statusEl) statusEl.textContent = msg;
-    // The admin panel is a collapsed <details> by default and stays closed
-    // across page loads. Without forcing it open, every status this
-    // function reports -- "save a token first", a delete failure, a delete
-    // success -- renders invisibly, and clicking Delete looks like nothing
-    // happened at all.
-    if (detailsEl) {{
-      detailsEl.open = true;
-      detailsEl.scrollIntoView({{ behavior: "smooth", block: "nearest" }});
-    }}
-  }}
-  function getToken() {{
-    try {{ return localStorage.getItem(STORAGE_KEY) || ""; }}
-    catch (e) {{ return ""; }}
-  }}
-
-  var saveBtn = document.getElementById("devlog-token-save");
-  var clearBtn = document.getElementById("devlog-token-clear");
-  var input = document.getElementById("devlog-token-input");
-
-  if (saveBtn) {{
-    saveBtn.addEventListener("click", function () {{
-      try {{
-        localStorage.setItem(STORAGE_KEY, input.value.trim());
-        setStatus("Token saved.");
-      }} catch (e) {{
-        setStatus("Could not save token: " + e);
-      }}
-    }});
-  }}
-  if (clearBtn) {{
-    clearBtn.addEventListener("click", function () {{
-      try {{
-        localStorage.removeItem(STORAGE_KEY);
-        input.value = "";
-        setStatus("Token cleared.");
-      }} catch (e) {{
-        setStatus("Could not clear token: " + e);
-      }}
-    }});
-  }}
-
-  function authHeaders(token) {{
-    return {{
-      "Authorization": "token " + token,
-      "Accept": "application/vnd.github+json",
-      "Content-Type": "application/json"
-    }};
-  }}
-
-  function pollWorkflowRun(token, actionLabel, dispatchedAt) {{
-    var attempts = 0;
-    function tick() {{
-      attempts += 1;
-      fetch(
-        "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW +
-          "/runs?event=workflow_dispatch&per_page=5",
-        {{ headers: authHeaders(token) }}
-      ).then(function (resp) {{
-        if (!resp.ok) {{
-          setStatus(
-            actionLabel + " dispatched; could not poll run status (" + resp.status +
-            "). Check the Actions tab."
-          );
-          return null;
-        }}
-        return resp.json();
-      }}).then(function (data) {{
-        if (!data) return;
-        var runs = data.workflow_runs || [];
-        var run = null;
-        for (var i = 0; i < runs.length; i++) {{
-          var created = Date.parse(runs[i].created_at);
-          if (!isNaN(created) && created + 5000 >= dispatchedAt) {{
-            run = runs[i];
-            break;
-          }}
-        }}
-        if (!run) {{
-          if (attempts >= POLL_MAX) {{
-            setStatus(
-              actionLabel + " dispatched; run not found yet. Check the Actions tab."
-            );
-            return;
-          }}
-          setStatus(actionLabel + " dispatched; waiting for Actions run...");
-          setTimeout(tick, POLL_MS);
-          return;
-        }}
-        if (run.status !== "completed") {{
-          setStatus(
-            actionLabel + " run " + run.status +
-            (run.conclusion ? " (" + run.conclusion + ")" : "") +
-            "... refresh when Pages finishes."
-          );
-          if (attempts >= POLL_MAX) return;
-          setTimeout(tick, POLL_MS);
-          return;
-        }}
-        setStatus(
-          actionLabel + " finished: " + (run.conclusion || "completed") +
-          ". Refresh in a few seconds for Pages."
-        );
-      }}).catch(function (err) {{
-        setStatus(actionLabel + " dispatched; poll failed: " + err);
-      }});
-    }}
-    setTimeout(tick, 1500);
-  }}
-
-  function dispatchAction(action, day, confirmMsg, label) {{
-    if (!confirm(confirmMsg)) {{
-      return;
-    }}
-    var token = getToken();
-    if (!token) {{
-      setStatus("Save a token first.");
-      return;
-    }}
-    var dispatchedAt = Date.now();
-    setStatus("Requesting " + label + " of " + day + "...");
-    fetch(
-      "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW + "/dispatches",
-      {{
-        method: "POST",
-        headers: authHeaders(token),
-        body: JSON.stringify({{
-          ref: BRANCH,
-          inputs: {{ date: day, action: action }}
-        }})
-      }}
-    ).then(function (resp) {{
-      if (resp.status === 204) {{
-        setStatus(label + " requested for " + day + " -- watching Actions...");
-        pollWorkflowRun(token, label, dispatchedAt);
-      }} else if (resp.status === 403) {{
-        setStatus(
-          label + " request failed (403): token can't trigger this workflow. " +
-          "Check the token's Repository access is 'Only select repositories' " +
-          "(not 'Public Repositories (read-only)', which silently forces " +
-          "read-only) and that Actions permission is 'Read and write'."
-        );
-      }} else {{
-        resp.text().then(function (text) {{
-          setStatus(label + " request failed (" + resp.status + "): " + text);
-        }});
-      }}
-    }}).catch(function (err) {{
-      setStatus(label + " request failed: " + err);
-    }});
-  }}
-
-  document.querySelectorAll(".delete-btn").forEach(function (btn) {{
-    btn.addEventListener("click", function () {{
-      var day = btn.getAttribute("data-date");
-      dispatchAction(
-        "delete",
-        day,
-        "Delete the " + day + " post? This pushes a real commit removing it.",
-        "Delete"
-      );
-    }});
-  }});
-
-  document.querySelectorAll(".hide-btn").forEach(function (btn) {{
-    btn.addEventListener("click", function () {{
-      var day = btn.getAttribute("data-date");
-      dispatchAction(
-        "hide",
-        day,
-        "Hide the " + day + " post from the public feed? Markdown stays in the repo.",
-        "Hide"
-      );
-    }});
-  }});
-
-  document.querySelectorAll(".unhide-btn").forEach(function (btn) {{
-    btn.addEventListener("click", function () {{
-      var day = btn.getAttribute("data-date");
-      dispatchAction(
-        "unhide",
-        day,
-        "Unhide the " + day + " post back onto the public feed?",
-        "Unhide"
-      );
-    }});
-  }});
-}})();
-</script>
-"""
+    return _fill(
+        _template("admin_panel.html"),
+        REPO_HTML=html.escape(github_repo),
+        HIDDEN_BLOCK=hidden_block,
+        REPO_JS=_js_string(github_repo),
+        WORKFLOW_JS=_js_string(DELETE_WORKFLOW_FILE),
+        BRANCH_JS=_js_string(branch),
+    )
 
 
 def _friendly_timestamp(iso: str) -> str:

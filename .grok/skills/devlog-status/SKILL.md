@@ -1,6 +1,6 @@
 ---
 name: devlog-status
-description: Check devlog's publish/delete status and scheduled-task health
+description: Check devlog publish/delete status and scheduled-task health. Use when the user asks for daily-dev-log status or run /devlog-status.
 user-invocable: true
 ---
 

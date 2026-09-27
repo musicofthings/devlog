@@ -10,6 +10,8 @@ from pathlib import Path
 from devlog.config import DEFAULT_SOURCES, DevlogConfig, load_config
 from devlog.digest import slice_for_date
 from devlog.models import RawSession
+from devlog.privacy import configure_redaction
+from devlog.publish import scan_start
 from devlog.summarize import generate_post
 
 
@@ -117,11 +119,12 @@ def cmd_run(argv: list[str] | None = None) -> int:
             if args.verbose:
                 print(f"[{source.name}] no data root at {root} — skipping")
             continue
-        found = source.iter_sessions(root)
+        found = source.iter_sessions(root, since=scan_start(target_date))
         if args.verbose:
             print(f"[{source.name}] found {len(found)} session(s) under {root}")
         raw_sessions.extend(found)
 
+    configure_redaction(cfg.redact_patterns)
     digests = slice_for_date(raw_sessions, target_date, tz)
 
     print(f"=== Found {len(digests)} session(s) for {target_date} ===\n")
@@ -129,6 +132,7 @@ def cmd_run(argv: list[str] | None = None) -> int:
         digests,
         model=cfg.model,
         allow_external_api=cfg.allow_external_api,
+        public_detail=cfg.public_detail,
     )
     print("=== Daily post ===\n")
     print(post)
@@ -168,6 +172,10 @@ def main(argv: list[str] | None = None) -> int:
         from devlog.obsidian import cmd_obsidian
 
         return cmd_obsidian(argv[1:])
+    if argv and argv[0] == "mcp":
+        from devlog.mcp_server import cmd_mcp
+
+        return cmd_mcp(argv[1:])
     if argv and argv[0] in {"run", "generate"}:
         return cmd_run(argv[1:])
     return cmd_run(argv)

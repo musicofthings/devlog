@@ -10,7 +10,13 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Windows is where the nightly Task Scheduler job runs; test it there too.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,14 +24,17 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev,mcp]"
 
       - name: Lint
         run: python -m ruff check .
+
+      - name: Slash commands in sync
+        run: python -m devlog.commands_sync --check
 
       - name: Test
         run: python -m pytest -q

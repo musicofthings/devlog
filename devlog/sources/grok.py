@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from devlog.models import RawSession, SessionEvent
-from devlog.sources.base import register
+from devlog.sources.base import modified_since, register
 
 _USER_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL | re.IGNORECASE)
 _CHROME_MARKERS = (
@@ -272,7 +272,7 @@ def parse_session_dir(session_dir: Path) -> RawSession | None:
 class GrokParser:
     name = "grok"
 
-    def iter_sessions(self, root: Path) -> list[RawSession]:
+    def iter_sessions(self, root: Path, since: datetime | None = None) -> list[RawSession]:
         root = Path(root)
         sessions_dir = root / "sessions" if (root / "sessions").exists() else root
         if not sessions_dir.exists():
@@ -280,6 +280,8 @@ class GrokParser:
 
         sessions: list[RawSession] = []
         for path in sorted(sessions_dir.rglob("chat_history.jsonl")):
+            if not modified_since(path, since):
+                continue
             try:
                 session = parse_session_dir(path.parent)
             except (OSError, UnicodeError):

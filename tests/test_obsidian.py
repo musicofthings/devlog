@@ -10,6 +10,8 @@ import pytest
 
 from devlog.config import DevlogConfig, load_config, save_config
 from devlog.obsidian import (
+    DEVLOG_REGION_END,
+    DEVLOG_REGION_START,
     archive_path,
     backfill_posts,
     create_obsidian_vault,
@@ -19,7 +21,6 @@ from devlog.obsidian import (
     planned_paths,
     register_obsidian_vault,
     remove_mirrored_post,
-    render_archive,
     should_remove_from_vault,
     strip_daily_region,
     try_mirror_post,
@@ -27,6 +28,8 @@ from devlog.obsidian import (
     wikilink_for,
 )
 
+START = DEVLOG_REGION_START
+END = DEVLOG_REGION_END
 DAY = date(2026, 8, 13)
 POST = "# 2026-08-13\n\nToday I logged 328 active min across vitreous.\n"
 
@@ -46,11 +49,14 @@ def _cfg(tmp_path: Path, **kwargs) -> DevlogConfig:
     return DevlogConfig(**defaults)
 
 
-def test_render_archive_adds_frontmatter():
-    text = render_archive(DAY, POST)
+def test_day_note_has_frontmatter_and_post(tmp_path: Path):
+    cfg = _cfg(tmp_path)
+    try_mirror_post(cfg, DAY, POST)
+    text = archive_path(cfg, DAY).read_text(encoding="utf-8")
     assert text.startswith("---\n")
     assert "date: 2026-08-13" in text
-    assert "tags:\n  - devlog" in text
+    assert "type: devlog-day" in text
+    assert "tags:\n  - devlog\n" in text
     assert "# 2026-08-13\n\nToday I logged 328 active min across vitreous." in text
 
 
@@ -62,26 +68,38 @@ def test_wikilink_uses_folder_and_date():
 def test_upsert_daily_region_creates_and_replaces_without_clobber():
     created = upsert_daily_region("", DAY, "![[DevLog/2026-08-13]]")
     assert created.startswith("# 2026-08-13\n")
-    assert "%%devlog\n![[DevLog/2026-08-13]]\n%%" in created
+    assert f"{START}\n![[DevLog/2026-08-13]]\n{END}" in created
 
-    existing = "# 2026-08-13\n\nMorning notes.\n\n%%devlog\n![[DevLog/old]]\n%%\n\nEvening.\n"
+    existing = f"# 2026-08-13\n\nMorning notes.\n\n{START}\n![[DevLog/old]]\n{END}\n\nEvening.\n"
     updated = upsert_daily_region(existing, DAY, "![[DevLog/2026-08-13]]")
     assert "Morning notes." in updated
     assert "Evening." in updated
     assert "![[DevLog/2026-08-13]]" in updated
     assert "![[DevLog/old]]" not in updated
-    assert updated.count("%%devlog") == 1
+    assert updated.count(START) == 1
 
     appended = upsert_daily_region("# 2026-08-13\n\nOnly journal.\n", DAY, "![[DevLog/2026-08-13]]")
     assert "Only journal." in appended
-    assert appended.count("%%devlog") == 1
+    assert appended.count(START) == 1
+
+
+def test_upsert_daily_region_migrates_legacy_hidden_comment():
+    # The pre-graph region wrapped the embed in a %% comment, hiding it.
+    legacy = "# 2026-08-13\n\nAM.\n\n%%devlog\n![[DevLog/2026-08-13]]\n%%\n\nPM.\n"
+    updated = upsert_daily_region(legacy, DAY, "![[DevLog/2026-08-13]]")
+    assert "%%devlog" not in updated
+    assert f"{START}\n![[DevLog/2026-08-13]]\n{END}" in updated
+    assert updated.index("AM.") < updated.index(START) < updated.index("PM.")
+    assert updated.count("![[DevLog/2026-08-13]]") == 1
 
 
 def test_strip_daily_region_keeps_other_text():
-    text = "# 2026-08-13\n\nKeep me.\n\n%%devlog\n![[DevLog/2026-08-13]]\n%%\n"
+    text = f"# 2026-08-13\n\nKeep me.\n\n{START}\n![[DevLog/2026-08-13]]\n{END}\n"
     stripped = strip_daily_region(text)
     assert "Keep me." in stripped
-    assert "%%devlog" not in stripped
+    assert START not in stripped
+    legacy = strip_daily_region("Keep.\n\n%%devlog\n![[DevLog/2026-08-13]]\n%%\n")
+    assert "%%devlog" not in legacy and "Keep." in legacy
     assert "![[DevLog/2026-08-13]]" not in stripped
 
 
@@ -98,7 +116,7 @@ def test_try_mirror_post_writes_archive_and_daily(tmp_path: Path):
     assert "date: 2026-08-13" in body
     assert "Today I logged 328 active min" in body
     daily_text = daily.read_text(encoding="utf-8")
-    assert "%%devlog" in daily_text
+    assert START in daily_text
     assert "![[DevLog/2026-08-13]]" in daily_text
 
 
@@ -127,7 +145,7 @@ def test_try_mirror_post_force_overwrites_archive(tmp_path: Path):
     assert "Rewritten body." in text
     assert "328 active min" not in text
     daily = daily_path(cfg, DAY).read_text(encoding="utf-8")
-    assert daily.count("%%devlog") == 1
+    assert daily.count(START) == 1
 
 
 def test_remove_mirrored_post_deletes_archive_and_strips_daily(tmp_path: Path):
@@ -135,7 +153,7 @@ def test_remove_mirrored_post_deletes_archive_and_strips_daily(tmp_path: Path):
     try_mirror_post(cfg, DAY, POST)
     daily = daily_path(cfg, DAY)
     daily.write_text(
-        "# 2026-08-13\n\nKeep me.\n\n%%devlog\n![[DevLog/2026-08-13]]\n%%\n",
+        f"# 2026-08-13\n\nKeep me.\n\n{START}\n![[DevLog/2026-08-13]]\n{END}\n",
         encoding="utf-8",
     )
     out = remove_mirrored_post(cfg, DAY)
@@ -143,7 +161,7 @@ def test_remove_mirrored_post_deletes_archive_and_strips_daily(tmp_path: Path):
     assert not archive_path(cfg, DAY).exists()
     leftover = daily.read_text(encoding="utf-8")
     assert "Keep me." in leftover
-    assert "%%devlog" not in leftover
+    assert START not in leftover
 
 
 def test_should_remove_from_vault_defaults_to_preserve():

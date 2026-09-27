@@ -8,19 +8,49 @@ import os
 import re
 import secrets
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from devlog.config import DevlogConfig, default_config_path, load_config
+from devlog.knowledge import build_day_meta, parse_post_meta
+from devlog.models import SessionDigest
+from devlog.privacy import configure_redaction
+from devlog.projects import ProjectResolver
+from devlog.topics import TopicDetector
+from devlog.vault_graph import (
+    existing_day_notes,
+    load_index,
+    load_state,
+    refresh_graph,
+    save_index,
+)
 
-DEVLOG_REGION_START = "%%devlog"
-DEVLOG_REGION_END = "%%"
+# The embed sits *between* two comment markers. Wrapping it inside a single
+# %% ... %% comment (the pre-graph format) hides it in Reading/Live Preview.
+DEVLOG_REGION_START = "%% devlog:daily:start %%"
+DEVLOG_REGION_END = "%% devlog:daily:end %%"
 _REGION_RE = re.compile(
+    re.escape(DEVLOG_REGION_START) + r".*?" + re.escape(DEVLOG_REGION_END),
+    re.DOTALL,
+)
+_LEGACY_REGION_RE = re.compile(
     r"^%%devlog[ \t]*\n.*?^%%[ \t]*$",
     re.MULTILINE | re.DOTALL,
 )
 _DATE_POST_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.md$")
 _DAILY_NOTES_JSON = '{"folder": "Daily", "format": "YYYY-MM-DD"}\n'
+# Graph view colors for a new vault: project hubs, work-type hubs, day notes.
+_GRAPH_JSON = json.dumps(
+    {
+        "colorGroups": [
+            {"query": "tag:#devlog/project-hub", "color": {"a": 1, "rgb": 15105570}},
+            {"query": "tag:#devlog/work-hub", "color": {"a": 1, "rgb": 3447003}},
+            {"query": "tag:#devlog/week", "color": {"a": 1, "rgb": 10181046}},
+            {"query": "path:DevLog", "color": {"a": 1, "rgb": 9807270}},
+        ]
+    },
+    indent=2,
+) + "\n"
 
 
 def obsidian_app_config_path() -> Path:
@@ -91,6 +121,9 @@ def create_obsidian_vault(path: Path) -> Path:
     daily_json = obsidian_dir / "daily-notes.json"
     if not daily_json.exists():
         daily_json.write_text(_DAILY_NOTES_JSON, encoding="utf-8")
+    graph_json = obsidian_dir / "graph.json"
+    if not graph_json.exists():
+        graph_json.write_text(_GRAPH_JSON, encoding="utf-8")
     (path / "DevLog").mkdir(exist_ok=True)
     (path / "Daily").mkdir(exist_ok=True)
     return path
@@ -177,18 +210,6 @@ def wikilink_for(cfg: DevlogConfig, day: date) -> str:
     return f"![[{target}]]"
 
 
-def render_archive(day: date, post_markdown: str) -> str:
-    body = post_markdown.strip() + "\n"
-    return (
-        "---\n"
-        f"date: {day.isoformat()}\n"
-        "tags:\n"
-        "  - devlog\n"
-        "---\n\n"
-        f"{body}"
-    )
-
-
 def _region_block(wikilink: str) -> str:
     return f"{DEVLOG_REGION_START}\n{wikilink}\n{DEVLOG_REGION_END}"
 
@@ -196,6 +217,11 @@ def _region_block(wikilink: str) -> str:
 def upsert_daily_region(existing: str, day: date, wikilink: str) -> str:
     block = _region_block(wikilink)
     text = existing.replace("\r\n", "\n")
+    legacy = _LEGACY_REGION_RE.search(text)
+    if legacy is not None and not _REGION_RE.search(text):
+        # Migrate in place so the embed keeps its position in the note.
+        text = text[: legacy.start()] + block + text[legacy.end() :]
+    text = _LEGACY_REGION_RE.sub("", text)
     if not text.strip():
         return f"# {day.isoformat()}\n\n{block}\n"
     matches = list(_REGION_RE.finditer(text))
@@ -211,6 +237,7 @@ def upsert_daily_region(existing: str, day: date, wikilink: str) -> str:
 
 def strip_daily_region(text: str) -> str:
     stripped = _REGION_RE.sub("", text.replace("\r\n", "\n"))
+    stripped = _LEGACY_REGION_RE.sub("", stripped)
     stripped = re.sub(r"\n{3,}", "\n\n", stripped)
     return stripped.strip() + "\n"
 
@@ -228,17 +255,108 @@ def planned_paths(cfg: DevlogConfig, day: date) -> dict:
     }
 
 
-def try_mirror_post(cfg: DevlogConfig, day: date, post_markdown: str) -> dict:
+def _folder(cfg: DevlogConfig) -> str:
+    return (cfg.obsidian_folder or "DevLog").strip().strip("/").strip("\\")
+
+
+def _folder_root(cfg: DevlogConfig) -> Path:
+    root = vault_root(cfg)
+    assert root is not None
+    folder = _folder(cfg)
+    return root / folder if folder else root
+
+
+def refresh_vault(cfg: DevlogConfig, days: dict[str, dict] | None = None) -> dict:
+    """Rebuild day notes, hubs, weeklies, and Home from the vault index."""
     root = vault_root(cfg)
     if root is None:
         return {"status": "disabled"}
     if not root.is_dir():
         return {"status": "vault_missing", "vault": str(root)}
+    folder_root = _folder_root(cfg)
+    if days is None:
+        days = load_index(folder_root)
+        # A day note deleted by hand in Obsidian stays deleted.
+        present = existing_day_notes(folder_root)
+        days = {d: m for d, m in days.items() if d in present}
+    try:
+        save_index(folder_root, days)
+        state = load_state(folder_root)
+        graph = refresh_graph(
+            root,
+            _folder(cfg),
+            days,
+            state["done_threads"],
+            detector=TopicDetector(cfg.topics),
+            canvas_hashes=state["canvas_hashes"],
+        )
+        save_index(
+            folder_root,
+            days,
+            {
+                "done_threads": graph.pop("done_threads"),
+                "canvas_hashes": graph.pop("canvas_hashes"),
+            },
+        )
+    except OSError as exc:
+        return {"status": "error", "error": str(exc)}
+    return {"status": "refreshed", "days": len(days), **graph}
+
+
+def _upsert_day(
+    day: date,
+    post_markdown: str,
+    digests: list[SessionDigest] | None,
+    days: dict[str, dict],
+    resolver: ProjectResolver,
+) -> None:
+    if digests is not None:
+        meta = build_day_meta(day, digests, post_markdown, resolver)
+    else:
+        meta = parse_post_meta(day, post_markdown, resolver)
+        previous = days.get(day.isoformat())
+        # Re-mirroring (backfill, or a post hand-edited in review mode) keeps
+        # the session-derived detail and only takes the new prose.
+        if previous and previous.get("origin") == "sessions":
+            meta = {**previous, "summary": meta["summary"]}
+    days[day.isoformat()] = meta
+
+
+def try_mirror_post(
+    cfg: DevlogConfig,
+    day: date,
+    post_markdown: str,
+    digests: list[SessionDigest] | None = None,
+    *,
+    refresh: bool = True,
+    resolver: ProjectResolver | None = None,
+) -> dict:
+    """Write the day note + Daily Note embed, then relink the whole graph.
+
+    `digests` (available at publish time) give per-project detail; without
+    them, metadata is recovered from the post text.
+    """
+    root = vault_root(cfg)
+    if root is None:
+        return {"status": "disabled"}
+    if not root.is_dir():
+        return {"status": "vault_missing", "vault": str(root)}
+    configure_redaction(cfg.redact_patterns)
     try:
         archive = archive_path(cfg, day)
         daily = daily_path(cfg, day)
-        archive.parent.mkdir(parents=True, exist_ok=True)
-        archive.write_text(render_archive(day, post_markdown), encoding="utf-8")
+        folder_root = _folder_root(cfg)
+        days = load_index(folder_root)
+        resolver = resolver or ProjectResolver(cfg.project_aliases)
+        _upsert_day(day, post_markdown, digests, days, resolver)
+        if refresh:
+            present = existing_day_notes(folder_root) | {day.isoformat()}
+            days = {d: m for d, m in days.items() if d in present}
+            outcome = refresh_vault(cfg, days)
+            if outcome["status"] == "error":
+                return outcome
+        else:
+            save_index(folder_root, days)
         previous = daily.read_text(encoding="utf-8") if daily.exists() else ""
         daily.parent.mkdir(parents=True, exist_ok=True)
         daily.write_text(
@@ -260,6 +378,7 @@ def remove_mirrored_post(cfg: DevlogConfig, day: date) -> dict:
         return {"status": "disabled"}
     if not root.is_dir():
         return {"status": "vault_missing", "vault": str(root)}
+    configure_redaction(cfg.redact_patterns)
     try:
         archive = archive_path(cfg, day)
         daily = daily_path(cfg, day)
@@ -270,6 +389,11 @@ def remove_mirrored_post(cfg: DevlogConfig, day: date) -> dict:
             daily.write_text(leftover, encoding="utf-8")
     except OSError as exc:
         return {"status": "error", "error": str(exc)}
+    days = load_index(_folder_root(cfg))
+    days.pop(day.isoformat(), None)
+    outcome = refresh_vault(cfg, days)
+    if outcome["status"] == "error":
+        return outcome
     return {
         "status": "removed",
         "archive": str(archive),
@@ -289,6 +413,7 @@ def backfill_posts(
     *,
     target: date | None = None,
     dry_run: bool = False,
+    digests_by_day: dict[date, list[SessionDigest]] | None = None,
 ) -> dict:
     if vault_root(cfg) is None:
         return {"status": "disabled", "count": 0, "days": []}
@@ -298,6 +423,7 @@ def backfill_posts(
         paths = sorted(posts_dir.glob("*.md"))
     days: list[str] = []
     written = 0
+    resolver = ProjectResolver(cfg.project_aliases)
     for path in paths:
         match = _DATE_POST_RE.match(path.name)
         if match is None or not path.is_file():
@@ -306,12 +432,27 @@ def backfill_posts(
         days.append(day.isoformat())
         if dry_run:
             continue
-        result = try_mirror_post(cfg, day, path.read_text(encoding="utf-8"))
+        digests = digests_by_day.get(day) if digests_by_day is not None else None
+        result = try_mirror_post(
+            cfg,
+            day,
+            path.read_text(encoding="utf-8"),
+            digests,
+            refresh=False,
+            resolver=resolver,
+        )
         if result["status"] == "written":
             written += 1
         elif result["status"] in {"vault_missing", "error"}:
             return {**result, "count": written, "days": days}
     status = "dry_run" if dry_run else "written"
+    if not dry_run and written:
+        root = _folder_root(cfg)
+        index = load_index(root)
+        present = existing_day_notes(root) | set(days)
+        refreshed = refresh_vault(cfg, {d: m for d, m in index.items() if d in present})
+        if refreshed["status"] == "error":
+            return {**refreshed, "count": written, "days": days}
     return {"status": status, "count": len(days) if dry_run else written, "days": days}
 
 
@@ -341,6 +482,30 @@ def _format_obsidian_outcome(outcome: dict) -> str:
     return f"obsidian {status}:{extra}"
 
 
+def _format_refresh(outcome: dict) -> str:
+    if outcome.get("status") != "refreshed":
+        return _format_obsidian_outcome(outcome)
+    return (
+        f"obsidian refreshed: {outcome['days']} day(s), "
+        f"{len(outcome['written'])} note(s) updated, {len(outcome['removed'])} removed"
+    )
+
+
+def _rescan(cfg: DevlogConfig) -> dict[date, list[SessionDigest]]:
+    """Read every source once and slice it per day (one pass, not one per post)."""
+    from devlog.digest import slice_for_date
+    from devlog.publish import collect_raw_sessions
+
+    raw = collect_raw_sessions(cfg)
+    tz = datetime.now().astimezone().tzinfo
+    days = {
+        event.timestamp.astimezone(tz).date()
+        for session in raw
+        for event in session.events
+    }
+    return {day: slice_for_date(raw, day, tz) for day in days}
+
+
 def cmd_obsidian(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Mirror published posts into a local Obsidian vault"
@@ -366,11 +531,21 @@ def cmd_obsidian(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print intended vault paths; do not write notes",
     )
+    parser.add_argument(
+        "--rescan",
+        action="store_true",
+        help="Re-read local session logs for per-project detail (slower, richer links)",
+    )
+    parser.add_argument(
+        "--reindex",
+        action="store_true",
+        help="Regenerate hubs, weeklies, and Home from the vault index only",
+    )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
-    if not args.backfill and not args.date:
-        parser.error("specify --backfill and/or --date")
+    if not args.backfill and not args.date and not args.reindex:
+        parser.error("specify --backfill, --date, and/or --reindex")
 
     cfg_path = args.config or default_config_path()
     try:
@@ -392,6 +567,18 @@ def cmd_obsidian(argv: list[str] | None = None) -> int:
             print(f"Invalid --date {args.date!r}")
             return 2
 
+    if args.reindex and not args.backfill and not args.date:
+        if args.dry_run:
+            print("obsidian dry_run: would regenerate hubs from the vault index")
+            return 0
+        outcome = refresh_vault(cfg)
+        print(outcome if args.verbose else _format_refresh(outcome))
+        return 1 if outcome.get("status") in {"vault_missing", "error"} else 0
+
+    digests_by_day: dict[date, list[SessionDigest]] | None = None
+    if args.rescan and not args.dry_run:
+        digests_by_day = _rescan(cfg)
+
     repo = Path(cfg.repo_path).expanduser()
     posts_dir = repo / "posts"
     if target is not None and not args.backfill:
@@ -407,13 +594,22 @@ def cmd_obsidian(argv: list[str] | None = None) -> int:
                 outcome["status"] = "dry_run"
         else:
             outcome = try_mirror_post(
-                cfg, target, post_path.read_text(encoding="utf-8")
+                cfg,
+                target,
+                post_path.read_text(encoding="utf-8"),
+                digests_by_day.get(target) if digests_by_day is not None else None,
             )
             if outcome["status"] == "written":
                 outcome["count"] = 1
                 outcome["days"] = [target.isoformat()]
     else:
-        outcome = backfill_posts(cfg, posts_dir, target=target, dry_run=args.dry_run)
+        outcome = backfill_posts(
+            cfg,
+            posts_dir,
+            target=target,
+            dry_run=args.dry_run,
+            digests_by_day=digests_by_day,
+        )
 
     if args.verbose:
         print(outcome)

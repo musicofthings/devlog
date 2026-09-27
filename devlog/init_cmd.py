@@ -9,15 +9,18 @@ from devlog.config import (
     DEFAULT_OBSIDIAN_DAILY_FOLDER,
     DEFAULT_OBSIDIAN_FOLDER,
     DEFAULT_OBSIDIAN_ON_DELETE,
+    DEFAULT_PUBLIC_DETAIL,
     DEFAULT_PUBLISH_MODE,
     DEFAULT_SOURCES,
     OBSIDIAN_ON_DELETE,
+    PUBLIC_DETAIL_LEVELS,
     PUBLISH_MODES,
     DevlogConfig,
     default_config_path,
     default_opencode_root,
     default_repo_path,
     default_warp_root,
+    load_config,
     save_config,
 )
 from devlog.obsidian import (
@@ -74,6 +77,11 @@ def build_config_from_prompts() -> DevlogConfig:
     schedule_time = _prompt("schedule_time (HH:MM local)", "06:30")
     remote = _prompt("remote", "origin")
     branch = _prompt("branch", "main")
+    public_detail = _prompt(
+        "public_detail: how much of your prompts reaches the public post "
+        f"({'|'.join(PUBLIC_DETAIL_LEVELS)}; only verbatim quotes prompts)",
+        DEFAULT_PUBLIC_DETAIL,
+    )
     allow_external_api = _prompt_bool(
         "allow transcript text to be sent to an external API? (yes|no)", False
     )
@@ -126,7 +134,30 @@ def build_config_from_prompts() -> DevlogConfig:
         obsidian_folder=obsidian_folder,
         obsidian_daily_folder=obsidian_daily_folder,
         obsidian_on_delete=obsidian_on_delete,
+        public_detail=public_detail,
     )
+
+
+# Settings init never asks about; they're edited in config.toml by hand, so
+# re-running init must not reset them to defaults.
+UNPROMPTED_FIELDS = ("project_aliases", "topics", "redact_patterns", "publish_empty_days")
+
+
+def carry_over_unprompted(cfg: DevlogConfig, cfg_path: Path) -> list[str]:
+    """Copy hand-edited settings from an existing config into `cfg`."""
+    try:
+        previous = load_config(cfg_path)
+    except (OSError, ValueError):
+        return []
+    if previous is None:
+        return []
+    kept = []
+    for name in UNPROMPTED_FIELDS:
+        value = getattr(previous, name)
+        if value != getattr(DevlogConfig(), name):
+            setattr(cfg, name, value)
+            kept.append(name)
+    return kept
 
 
 def pages_checklist() -> str:
@@ -136,9 +167,11 @@ def pages_checklist() -> str:
         "  2. Settings -> Pages -> Build and deployment -> Source: GitHub Actions.\n"
         "  3. After the first docs/ push, confirm https://<user>.github.io/devlog/\n"
         "  4. Ensure git/gh auth works for publish_mode=auto or pr.\n"
-        "\nPrivacy note: published posts can include project paths AND the text of\n"
-        "your prompts to the AI tools. With publish_mode=auto they go public with\n"
-        "no review — keep 'manual' or 'pr' unless you accept that.\n"
+        "\nPrivacy note: public_detail decides what posts reveal: 'summary'\n"
+        "(minutes + project count), 'projects' (names + work types; default), or\n"
+        "'verbatim' (the text of your prompts). With publish_mode=auto posts go\n"
+        "public with no review. Add regexes (MRNs, sample IDs) to redact_patterns\n"
+        "in the config file; the Obsidian vault always keeps full detail.\n"
         "\nUse `devlog hide --date YYYY-MM-DD` to soft-hide a post from the public\n"
         "feed (markdown stays in posts/). Use `devlog delete` for a real git removal.\n"
         "With publish_mode=review, nightly writes files locally; confirm with\n"
@@ -194,6 +227,10 @@ def cmd_init(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(f"Invalid config: {exc}")
             return 2
+
+    carried = carry_over_unprompted(cfg, cfg_path)
+    if carried:
+        print("Kept from your existing config: " + ", ".join(carried))
 
     try:
         cfg.validate()

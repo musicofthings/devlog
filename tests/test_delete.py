@@ -100,7 +100,7 @@ def test_delete_resets_local_commit_when_push_fails(tmp_path: Path):
             return CompletedProcess(cmd, 0, stdout="D posts/2026-07-20.md\n", stderr="")
         if cmd[:2] == ["git", "push"]:
             return CompletedProcess(cmd, 1, stdout="", stderr="remote rejected")
-        if cmd[:3] == ["git", "reset", "--hard"]:
+        if cmd[:3] == ["git", "reset", "--keep"]:
             # Simulate restoring the post that HEAD~1 still has.
             (repo / "posts" / "2026-07-20.md").write_text(
                 "Built the parser.\n", encoding="utf-8"
@@ -112,7 +112,7 @@ def test_delete_resets_local_commit_when_push_fails(tmp_path: Path):
         delete_day(cfg, date(2026, 7, 20), git_run=fake_git)
 
     assert "local delete commit was reset" in str(excinfo.value)
-    assert any(c[:3] == ["git", "reset", "--hard"] and c[-1] == "HEAD~1" for c in calls)
+    assert any(c[:3] == ["git", "reset", "--keep"] and c[-1] == "HEAD~1" for c in calls)
     assert (repo / "posts" / "2026-07-20.md").exists()
 
 

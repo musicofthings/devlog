@@ -14,7 +14,9 @@ import re
 
 from devlog.digest import basename, build_raw_digest, total_active_minutes
 from devlog.models import SessionDigest
+from devlog.noise import headline_task
 from devlog.privacy import redact_sensitive_text
+from devlog.worktypes import classify
 
 # Kept tight: every word here is billed as input on every call.
 SUMMARY_SYSTEM_PROMPT = (
@@ -65,11 +67,31 @@ def summarize_with_claude(
     return _clamp_sentences(text)
 
 
-def summarize_with_template(sessions: list[SessionDigest]) -> str:
-    """Deterministic fallback -- no API key required. Good enough to prove
-    the pipeline works end-to-end; the Claude-generated version reads better."""
+def _work_by_project(sessions: list[SessionDigest]) -> dict[str, list[str]]:
+    """Generic work types per project, classified locally from the prompts."""
+    grouped: dict[str, tuple[list[str], dict[str, int]]] = {}
+    for s in sessions:
+        project = redact_sensitive_text(basename(s.project_path))
+        texts, tools = grouped.setdefault(project, ([], {}))
+        texts.extend(s.user_messages)
+        for k, v in s.tool_calls.items():
+            tools[k] = tools.get(k, 0) + v
+    return {p: classify(texts, tools) for p, (texts, tools) in grouped.items()}
+
+
+def summarize_with_template(
+    sessions: list[SessionDigest], detail: str = "verbatim"
+) -> str:
+    """Deterministic fallback -- no API key required.
+
+    `detail` controls how much of the user's prompts reaches the post:
+    "verbatim" quotes the first prompt per project, "projects" names projects
+    with generic work types, "summary" gives only totals.
+    """
     if not sessions:
         return "No coding activity logged today."
+    if detail != "verbatim":
+        return _summarize_redacted(sessions, detail)
 
     projects = sorted(
         {redact_sensitive_text(basename(s.project_path)) for s in sessions}
@@ -87,8 +109,9 @@ def summarize_with_template(sessions: list[SessionDigest]) -> str:
     seen_projects: set[str] = set()
     for s in sessions:
         project = redact_sensitive_text(basename(s.project_path))
-        if s.user_messages and project not in seen_projects:
-            task = redact_sensitive_text(s.user_messages[0])
+        first = headline_task(s.user_messages)
+        if first and project not in seen_projects:
+            task = redact_sensitive_text(first)
             task = _EMOJI_RE.sub("", re.sub(r"\s+", " ", task)).strip()
             task = _SENTENCE_SPLIT_RE.split(task, maxsplit=1)[0].rstrip(".!? ")
             if task:
@@ -108,19 +131,43 @@ def summarize_with_template(sessions: list[SessionDigest]) -> str:
     return _clamp_sentences(" ".join(parts))
 
 
+def _summarize_redacted(sessions: list[SessionDigest], detail: str) -> str:
+    total_minutes = total_active_minutes(sessions)
+    work = _work_by_project(sessions)
+    if detail == "summary":
+        kinds = sorted({w for ws in work.values() for w in ws})
+        # "in N project(s)", not "across": the vault backfill parser reads
+        # "across <names>" as project names.
+        parts = [f"Today I logged {total_minutes:.0f} active min in {len(work)} project(s)."]
+        if kinds:
+            parts.append("Work: " + ", ".join(kinds) + ".")
+        return _clamp_sentences(" ".join(parts))
+    projects = sorted(work)
+    parts = [f"Today I logged {total_minutes:.0f} active min across {', '.join(projects)}."]
+    described = [f"{' and '.join(ws)} on {p}" for p, ws in sorted(work.items()) if ws]
+    if described:
+        parts.append("Work: " + "; ".join(described[:3]) + ".")
+    else:
+        parts.append(f"I recorded activity in {len(sessions)} coding session(s).")
+    return _clamp_sentences(" ".join(parts))
+
+
 def generate_post(
     sessions: list[SessionDigest],
     model: str | None = None,
     *,
     allow_external_api: bool = False,
+    public_detail: str = "verbatim",
 ) -> str:
-    # Empty day: never spend tokens on the API.
-    if not sessions:
-        return summarize_with_template(sessions)
+    # Empty day: never spend tokens on the API. "summary" is two numbers and
+    # a list of work types; a model adds only cost and a chance to embellish.
+    if not sessions or public_detail == "summary":
+        return summarize_with_template(sessions, public_detail)
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     # Compact digest for the LLM path; full digest remains available for audits.
-    raw_digest = build_raw_digest(sessions, compact=True)
+    # Below "verbatim", prompts/files/commands never reach the model either.
+    raw_digest = build_raw_digest(sessions, compact=True, detail=public_detail)
     if api_key and allow_external_api:
         try:
             post = summarize_with_claude(
@@ -133,4 +180,4 @@ def generate_post(
                 return redact_sensitive_text(post)
         except Exception as e:  # network/auth issues -> don't crash the pipeline
             print(f"[warn] Claude summarization failed ({e}); falling back to template.")
-    return summarize_with_template(sessions)
+    return summarize_with_template(sessions, public_detail)

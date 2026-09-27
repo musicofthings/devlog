@@ -1,0 +1,226 @@
+
+<details class="admin" id="devlog-admin-details">
+  <summary>Admin: manage posts</summary>
+  <p class="status">
+    Paste a GitHub fine-grained personal access token scoped to
+    <code>@@REPO_HTML@@</code> with <strong>Actions: read and write</strong>
+    permission only (not Contents). It is saved in this browser's local storage and
+    never sent anywhere except api.github.com.
+  </p>
+  <p class="status">
+    When creating it, set <strong>Repository access</strong> to
+    <strong>"Only select repositories"</strong> and pick this repo — choosing
+    <strong>"Public Repositories (read-only)"</strong> silently caps the token to
+    read-only no matter what you set Actions to below it, and Delete will fail with
+    "403 Resource not accessible by personal access token".
+  </p>
+  <div class="row">
+    <input type="password" id="devlog-token-input" placeholder="github_pat_..."
+           autocomplete="off" />
+    <button type="button" id="devlog-token-save">Save token</button>
+    <button type="button" id="devlog-token-clear">Clear token</button>
+  </div>
+  @@HIDDEN_BLOCK@@
+  <p class="status" id="devlog-admin-status"></p>
+</details>
+<script>
+(function () {
+  var REPO = @@REPO_JS@@;
+  var WORKFLOW = @@WORKFLOW_JS@@;
+  var BRANCH = @@BRANCH_JS@@;
+  var STORAGE_KEY = "devlog-admin-token";
+  var statusEl = document.getElementById("devlog-admin-status");
+  var detailsEl = document.getElementById("devlog-admin-details");
+  var POLL_MS = 4000;
+  var POLL_MAX = 45;
+
+  function setStatus(msg) {
+    if (statusEl) statusEl.textContent = msg;
+    // The admin panel is a collapsed <details> by default and stays closed
+    // across page loads. Without forcing it open, every status this
+    // function reports -- "save a token first", a delete failure, a delete
+    // success -- renders invisibly, and clicking Delete looks like nothing
+    // happened at all.
+    if (detailsEl) {
+      detailsEl.open = true;
+      detailsEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }
+  function getToken() {
+    try { return localStorage.getItem(STORAGE_KEY) || ""; }
+    catch (e) { return ""; }
+  }
+
+  var saveBtn = document.getElementById("devlog-token-save");
+  var clearBtn = document.getElementById("devlog-token-clear");
+  var input = document.getElementById("devlog-token-input");
+
+  if (saveBtn) {
+    saveBtn.addEventListener("click", function () {
+      try {
+        localStorage.setItem(STORAGE_KEY, input.value.trim());
+        setStatus("Token saved.");
+      } catch (e) {
+        setStatus("Could not save token: " + e);
+      }
+    });
+  }
+  if (clearBtn) {
+    clearBtn.addEventListener("click", function () {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+        input.value = "";
+        setStatus("Token cleared.");
+      } catch (e) {
+        setStatus("Could not clear token: " + e);
+      }
+    });
+  }
+
+  function authHeaders(token) {
+    return {
+      "Authorization": "token " + token,
+      "Accept": "application/vnd.github+json",
+      "Content-Type": "application/json"
+    };
+  }
+
+  function pollWorkflowRun(token, actionLabel, dispatchedAt) {
+    var attempts = 0;
+    function tick() {
+      attempts += 1;
+      fetch(
+        "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW +
+          "/runs?event=workflow_dispatch&per_page=5",
+        { headers: authHeaders(token) }
+      ).then(function (resp) {
+        if (!resp.ok) {
+          setStatus(
+            actionLabel + " dispatched; could not poll run status (" + resp.status +
+            "). Check the Actions tab."
+          );
+          return null;
+        }
+        return resp.json();
+      }).then(function (data) {
+        if (!data) return;
+        var runs = data.workflow_runs || [];
+        var run = null;
+        for (var i = 0; i < runs.length; i++) {
+          var created = Date.parse(runs[i].created_at);
+          if (!isNaN(created) && created + 5000 >= dispatchedAt) {
+            run = runs[i];
+            break;
+          }
+        }
+        if (!run) {
+          if (attempts >= POLL_MAX) {
+            setStatus(
+              actionLabel + " dispatched; run not found yet. Check the Actions tab."
+            );
+            return;
+          }
+          setStatus(actionLabel + " dispatched; waiting for Actions run...");
+          setTimeout(tick, POLL_MS);
+          return;
+        }
+        if (run.status !== "completed") {
+          setStatus(
+            actionLabel + " run " + run.status +
+            (run.conclusion ? " (" + run.conclusion + ")" : "") +
+            "... refresh when Pages finishes."
+          );
+          if (attempts >= POLL_MAX) return;
+          setTimeout(tick, POLL_MS);
+          return;
+        }
+        setStatus(
+          actionLabel + " finished: " + (run.conclusion || "completed") +
+          ". Refresh in a few seconds for Pages."
+        );
+      }).catch(function (err) {
+        setStatus(actionLabel + " dispatched; poll failed: " + err);
+      });
+    }
+    setTimeout(tick, 1500);
+  }
+
+  function dispatchAction(action, day, confirmMsg, label) {
+    if (!confirm(confirmMsg)) {
+      return;
+    }
+    var token = getToken();
+    if (!token) {
+      setStatus("Save a token first.");
+      return;
+    }
+    var dispatchedAt = Date.now();
+    setStatus("Requesting " + label + " of " + day + "...");
+    fetch(
+      "https://api.github.com/repos/" + REPO + "/actions/workflows/" + WORKFLOW + "/dispatches",
+      {
+        method: "POST",
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          ref: BRANCH,
+          inputs: { date: day, action: action }
+        })
+      }
+    ).then(function (resp) {
+      if (resp.status === 204) {
+        setStatus(label + " requested for " + day + " -- watching Actions...");
+        pollWorkflowRun(token, label, dispatchedAt);
+      } else if (resp.status === 403) {
+        setStatus(
+          label + " request failed (403): token can't trigger this workflow. " +
+          "Check the token's Repository access is 'Only select repositories' " +
+          "(not 'Public Repositories (read-only)', which silently forces " +
+          "read-only) and that Actions permission is 'Read and write'."
+        );
+      } else {
+        resp.text().then(function (text) {
+          setStatus(label + " request failed (" + resp.status + "): " + text);
+        });
+      }
+    }).catch(function (err) {
+      setStatus(label + " request failed: " + err);
+    });
+  }
+
+  document.querySelectorAll(".delete-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var day = btn.getAttribute("data-date");
+      dispatchAction(
+        "delete",
+        day,
+        "Delete the " + day + " post? This pushes a real commit removing it.",
+        "Delete"
+      );
+    });
+  });
+
+  document.querySelectorAll(".hide-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var day = btn.getAttribute("data-date");
+      dispatchAction(
+        "hide",
+        day,
+        "Hide the " + day + " post from the public feed? Markdown stays in the repo.",
+        "Hide"
+      );
+    });
+  });
+
+  document.querySelectorAll(".unhide-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var day = btn.getAttribute("data-date");
+      dispatchAction(
+        "unhide",
+        day,
+        "Unhide the " + day + " post back onto the public feed?",
+        "Unhide"
+      );
+    });
+  });
+})();
+</script>

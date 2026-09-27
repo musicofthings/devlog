@@ -13,7 +13,8 @@ from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 
 from devlog.models import RawSession, SessionEvent
-from devlog.sources.base import register
+from devlog.sources.base import modified_since, register
+from devlog.threads import TurnRecap
 
 _USER_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL | re.IGNORECASE)
 _TIMESTAMP_RE = re.compile(r"<timestamp>\s*(.*?)\s*</timestamp>", re.DOTALL | re.IGNORECASE)
@@ -125,6 +126,12 @@ def parse_transcript_file(path: Path, project_folder: str) -> RawSession | None:
     timestamps: list[datetime] = []
     events: list[SessionEvent] = []
     mtime = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+    recap = TurnRecap()
+
+    def flush_recap() -> None:
+        done = recap.flush()
+        if done is not None:
+            events.append(SessionEvent(timestamp=done[0], threads=done[1]))
 
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -150,10 +157,14 @@ def parse_transcript_file(path: Path, project_folder: str) -> RawSession | None:
                     timestamps.append(ts)
                     user_text = _extract_user_text(text)
                     if user_text:
+                        flush_recap()
                         events.append(SessionEvent(timestamp=ts, user_message=user_text))
             elif role == "assistant":
                 # Prefer last known timestamp; else mtime
                 ts = timestamps[-1] if timestamps else mtime
+                said = _content_texts(content)
+                if said:
+                    recap.assistant(ts, "\n".join(said))
                 if isinstance(content, list):
                     for block in content:
                         if not isinstance(block, dict) or block.get("type") != "tool_use":
@@ -172,6 +183,7 @@ def parse_transcript_file(path: Path, project_folder: str) -> RawSession | None:
                 if not timestamps:
                     timestamps.append(mtime)
 
+    flush_recap()
     if not timestamps and not events:
         return None
     if not timestamps:
@@ -192,7 +204,7 @@ def parse_transcript_file(path: Path, project_folder: str) -> RawSession | None:
 class CursorParser:
     name = "cursor"
 
-    def iter_sessions(self, root: Path) -> list[RawSession]:
+    def iter_sessions(self, root: Path, since: datetime | None = None) -> list[RawSession]:
         root = Path(root)
         projects_dir = root / "projects" if (root / "projects").exists() else root
         if not projects_dir.exists():
@@ -206,6 +218,8 @@ class CursorParser:
             if not transcripts.is_dir():
                 continue
             for path in sorted(transcripts.rglob("*.jsonl")):
+                if not modified_since(path, since):
+                    continue
                 try:
                     session = parse_transcript_file(path, project_folder.name)
                 except (OSError, UnicodeError):
