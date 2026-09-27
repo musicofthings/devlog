@@ -175,7 +175,7 @@ All review findings and roadmap items are now shipped. See **Ideas beyond the ro
 - ✅ **`devlog publish --explain`:** shows the sources scanned, how each project was named,
   commit counts, the writer and why, and how many redaction patterns fired.
 
-## Phase 5 (in progress)
+## Phase 5 ✅ shipped
 
 Proposed after the roadmap closed, ordered by value:
 
@@ -200,9 +200,14 @@ Proposed after the roadmap closed, ordered by value:
    writes a slide outline (`---` between slides) for Gamma, Marp, or PowerPoint, gated by
    `--detail` (defaults to `public_detail`) and redaction. `/devlog-deck` can hand it to a
    connected Gamma.
-5. **Write access for agents over MCP** (opt-in `mcp_write`): `close_thread`, `add_note`,
-   `log_decision`, below the managed markers only.
-6. **Packaging:** PyPI release, CHANGELOG, `devlog doctor`, mypy in CI, RSS and site search.
+5. ✅ **Write access for agents over MCP** (opt-in `mcp_write = true`): `close_thread`
+   ticks the checkbox like a click would (ambiguous matches list candidates),
+   `add_note` and `log_decision` append below `%% devlog:end %%`. Agent text is capped
+   and can't fake markers; every write is logged to `.devlog/agent-writes.jsonl`.
+6. ✅ **Packaging and upkeep:** `daily-devlog` on PyPI (the command stays `devlog`) with a
+   tag-triggered trusted-publishing workflow, `CHANGELOG.md`, `devlog doctor`,
+   `devlog --version`, mypy clean and in CI, a package build check in CI, and an RSS feed
+   plus full-text search on the log page. Publishing waits on a license choice.
 
 ## Recommended Obsidian plugins
 

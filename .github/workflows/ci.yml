@@ -33,6 +33,9 @@ jobs:
       - name: Lint
         run: python -m ruff check .
 
+      - name: Type check
+        run: python -m mypy
+
       - name: Slash commands in sync
         run: python -m devlog.commands_sync --check
 
@@ -42,3 +45,9 @@ jobs:
       - name: Audit published posts
         # Fails if a post in posts/ leaks harness text, secrets, or user paths.
         run: python -m devlog audit --repo .
+
+      - name: Package builds and passes twine check
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python -m build --outdir dist .
+          python -m twine check --strict dist/*

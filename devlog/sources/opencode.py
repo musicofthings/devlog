@@ -259,7 +259,7 @@ def _sessions_from_legacy_json(root: Path) -> list[RawSession]:
             continue
         sid = str(data.get("id") or path.stem)
         directory = data.get("directory") or data.get("cwd") or path.parent.as_posix()
-        time_obj = data.get("time") if isinstance(data.get("time"), dict) else {}
+        time_obj = data["time"] if isinstance(data.get("time"), dict) else {}
         created = _parse_timestamp(time_obj.get("created") or data.get("time_created"))
         messages = data.get("messages")
         if not isinstance(messages, list):

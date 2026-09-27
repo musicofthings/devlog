@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Daily Dev Log</title>
+    <link>https://musicofthings.github.io/devlog/log/</link>
+    <atom:link href="https://musicofthings.github.io/devlog/log/feed.xml" rel="self" type="application/rss+xml" />
+    <description>Daily build log from AI coding sessions</description>
+    <language>en</language>
+    <lastBuildDate>Sat, 26 Sep 2026 23:00:00 +0000</lastBuildDate>
+    <item>
+      <title>2026-09-26</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-26.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-26.html</guid>
+      <pubDate>Sat, 26 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-25</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-25.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-25.html</guid>
+      <pubDate>Fri, 25 Sep 2026 23:00:00 +0000</pubDate>
+      <description>Today I logged 54 active min across gurukul. I worked on gurukul: review this repo, codex has created new branches, check them and merge to main. Tools: run_terminal_command (105x), read_file (104x), search_replace (56x).</description>
+    </item>
+    <item>
+      <title>2026-09-24</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-24.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-24.html</guid>
+      <pubDate>Thu, 24 Sep 2026 23:00:00 +0000</pubDate>
+      <description>Today I logged 15 active min across Gurukul. Tools: exec (16x).</description>
+    </item>
+    <item>
+      <title>2026-09-22</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-22.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-22.html</guid>
+      <pubDate>Tue, 22 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-21</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-21.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-21.html</guid>
+      <pubDate>Mon, 21 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-20</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-20.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-20.html</guid>
+      <pubDate>Sun, 20 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-16</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-16.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-16.html</guid>
+      <pubDate>Wed, 16 Sep 2026 23:00:00 +0000</pubDate>
+      <description>Today I logged 65 active min across home. I worked on home: scan all the programs and see which ones need to be updated. Tools: run_terminal_command (53x), get_command_or_subagent_output (24x), read_file (20x).</description>
+    </item>
+    <item>
+      <title>2026-09-15</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-15.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-15.html</guid>
+      <pubDate>Tue, 15 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-14</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-14.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-14.html</guid>
+      <pubDate>Mon, 14 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-13</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-13.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-13.html</guid>
+      <pubDate>Sun, 13 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-12</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-12.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-12.html</guid>
+      <pubDate>Sat, 12 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-11</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-11.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-11.html</guid>
+      <pubDate>Fri, 11 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-09</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-09.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-09.html</guid>
+      <pubDate>Wed, 09 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-08</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-08.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-08.html</guid>
+      <pubDate>Tue, 08 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-07</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-07.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-07.html</guid>
+      <pubDate>Mon, 07 Sep 2026 23:00:00 +0000</pubDate>
+      <description>Today I logged 9 active min across vitreous. I worked on vitreous: git sync and plan the next phase of development. Tools: Read (96x), Grep (58x), StrReplace (40x).</description>
+    </item>
+    <item>
+      <title>2026-09-06</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-06.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-06.html</guid>
+      <pubDate>Sun, 06 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-05</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-05.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-05.html</guid>
+      <pubDate>Sat, 05 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-03</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-03.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-03.html</guid>
+      <pubDate>Thu, 03 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-09-02</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-02.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-02.html</guid>
+      <pubDate>Wed, 02 Sep 2026 23:00:00 +0000</pubDate>
+      <description>Today I logged 54 active min across vitreous. I worked on vitreous: git pull and code review. Tools: Read (210x), StrReplace (82x), Shell (77x).</description>
+    </item>
+    <item>
+      <title>2026-09-01</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-09-01.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-09-01.html</guid>
+      <pubDate>Tue, 01 Sep 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-08-30</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-08-30.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-08-30.html</guid>
+      <pubDate>Sun, 30 Aug 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-08-29</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-08-29.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-08-29.html</guid>
+      <pubDate>Sat, 29 Aug 2026 23:00:00 +0000</pubDate>
+      <description>Today I logged 29 active min across vitreous. I worked on vitreous: review the UI/UX audit summary and implement the next steps outlined. Tools: Read (102x), StrReplace (79x), Grep (38x).</description>
+    </item>
+    <item>
+      <title>2026-08-28</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-08-28.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-08-28.html</guid>
+      <pubDate>Fri, 28 Aug 2026 23:00:00 +0000</pubDate>
+      <description>Today I logged 10 active min across vitreous. I worked on vitreous: app is running now, do a complete UI/UX audit, the vertical slider for the left sidecar is detached and not behaving as. Tools: StrReplace (46x), Read (38x), Grep (13x).</description>
+    </item>
+    <item>
+      <title>2026-08-26</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-08-26.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-08-26.html</guid>
+      <pubDate>Wed, 26 Aug 2026 23:00:00 +0000</pubDate>
+      <description>Today I logged 66 active min across vitreous. I worked on vitreous: code review and suggest improvements. Tools: Read (382x), Grep (130x), StrReplace (91x).</description>
+    </item>
+    <item>
+      <title>2026-08-25</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-08-25.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-08-25.html</guid>
+      <pubDate>Tue, 25 Aug 2026 23:00:00 +0000</pubDate>
+      <description>Today I logged 34 active min across context-engineering-kit. I worked on context-engineering-kit: git sync and code review. Tools: powershell (50x), view (8x), skill (1x).</description>
+    </item>
+    <item>
+      <title>2026-08-24</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-08-24.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-08-24.html</guid>
+      <pubDate>Mon, 24 Aug 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-08-23</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-08-23.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-08-23.html</guid>
+      <pubDate>Sun, 23 Aug 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-08-22</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-08-22.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-08-22.html</guid>
+      <pubDate>Sat, 22 Aug 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-08-21</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-08-21.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-08-21.html</guid>
+      <pubDate>Fri, 21 Aug 2026 23:00:00 +0000</pubDate>
+      <description>No coding activity logged today.</description>
+    </item>
+    <item>
+      <title>2026-08-20</title>
+      <link>https://musicofthings.github.io/devlog/log/2026-08-20.html</link>
+      <guid isPermaLink="true">https://musicofthings.github.io/devlog/log/2026-08-20.html</guid>
+      <pubDate>Thu, 20 Aug 2026 23:00:00 +0000</pubDate>
+      <description>Today I logged 1372 active min across home, singlecell, vitreous. I worked on home: help me clean up disk space cluttered due to virtual machines and cache from AI tools; singlecell: Teach me from basics to advanced concepts about single cell transcriptomics, build me a html artifact with scientific il. Tools: exec (122x), run_terminal_command (27x), get_command_or_subagent_output (12x).</description>
+    </item>
+  </channel>
+</rss>

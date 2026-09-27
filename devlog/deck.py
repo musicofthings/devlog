@@ -243,11 +243,12 @@ def build_deck(days: dict[str, dict], *, label: str, start: date, end: date,
         lines = ["## Pipelines", "", "| Pipeline | Runs | Succeeded | Median time | Versions |",
                  "|---|---:|---:|---:|---|"]
         for name, rs in sorted(by_pipeline.items(), key=lambda kv: -len(kv[1])):
-            mins = [r["minutes"] for r in rs if r.get("minutes") is not None]
+            durations = [r["minutes"] for r in rs if r.get("minutes") is not None]
             versions = ", ".join(sorted({_clean(r["version"]) for r in rs if r.get("version")}))
+            median = _hours(statistics.median(durations)) if durations else "—"
             lines.append(f"| {_clean(name)} | {len(rs)} | "
                          f"{sum(r['status'] == 'success' for r in rs)} | "
-                         f"{_hours(statistics.median(mins)) if mins else '—'} | {versions} |")
+                         f"{median} | {versions} |")
         failures = [r for _, r in runs if r["status"] == "failed" and r.get("error")]
         if verbatim and failures:
             lines += ["", "**Failures**"] + [
@@ -296,8 +297,8 @@ def build_deck(days: dict[str, dict], *, label: str, start: date, end: date,
         if refs:
             reading = ["## Reading", ""]
             for e in refs[:MAX_REFS]:
-                r = as_reference(e["ref"])
-                reading.append(f"- [{r.label}]({r.url})")
+                ref = as_reference(e["ref"])
+                reading.append(f"- [{ref.label}]({ref.url})")
             slides.append(reading)
 
     return SLIDE_BREAK.join("\n".join(s).rstrip() for s in slides) + "\n"
@@ -328,7 +329,8 @@ def cmd_deck(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as exc:
         print(f"Could not load config at {cfg_path}: {exc}")
         return 2
-    if vault_root(cfg) is None or not vault_root(cfg).is_dir():
+    vault = vault_root(cfg)
+    if vault is None or not vault.is_dir():
         print("devlog deck reads the Obsidian vault index; set obsidian_vault and run "
               "`devlog obsidian --backfill` first.")
         return 2

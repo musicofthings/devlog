@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from devlog.config import DevlogConfig, default_config_path, load_config
-from devlog.digest import name_projects, slice_for_date
+from devlog.digest import local_tz, name_projects, slice_for_date
 from devlog.gitutil import (
     GitPublishError,
     GitRunner,
@@ -193,7 +193,7 @@ def scan_start(target: date) -> datetime:
 
 
 def collect_digests(cfg: DevlogConfig, target: date, stats: dict | None = None):
-    tz = datetime.now().astimezone().tzinfo
+    tz = local_tz()
     raw = collect_raw_sessions(cfg, since=scan_start(target), stats=stats)
     return slice_for_date(raw, target, tz)
 

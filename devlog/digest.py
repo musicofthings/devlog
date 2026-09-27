@@ -16,6 +16,13 @@ def day_bounds(target_date: date, tz: tzinfo) -> tuple[datetime, datetime]:
     return start, end
 
 
+def local_tz() -> tzinfo:
+    """This machine's current timezone."""
+    tz = datetime.now().astimezone().tzinfo
+    assert tz is not None  # astimezone() always attaches one
+    return tz
+
+
 def slice_for_date(
     sessions: list[RawSession],
     target_date: date,

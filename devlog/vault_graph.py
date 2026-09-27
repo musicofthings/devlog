@@ -996,7 +996,7 @@ def render_home(g: Graph, days: dict[str, dict], display: dict[str, str],
         body += ["## Literature", "",
                  f"{g.link(g.literature_rel(), 'Literature')}: **{len(refs)}** paper(s) "
                  f"mentioned · **{cited}** in Zotero", ""]
-    pipeline_runs = Counter()
+    pipeline_runs: Counter = Counter()
     pipeline_names: dict[str, str] = {}
     for _, run in all_runs(days):
         pipeline_runs[run["slug"]] += 1
