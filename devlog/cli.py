@@ -125,9 +125,9 @@ def cmd_run(argv: list[str] | None = None) -> int:
             print(f"[{source.name}] found {len(found)} session(s) under {root}")
         raw_sessions.extend(found)
 
-    configure_redaction(cfg.redact_patterns)
+    configure_redaction(cfg.redact_patterns, cfg.redact_presets)
     digests = slice_for_date(raw_sessions, target_date, tz)
-    resolver = ProjectResolver(cfg.project_aliases)
+    resolver = ProjectResolver.from_config(cfg)
     name_projects(digests, resolver)
     commit_counts = count_commits([d.project_path for d in digests], resolver, target_date)
 
@@ -178,6 +178,10 @@ def main(argv: list[str] | None = None) -> int:
         from devlog.obsidian import cmd_obsidian
 
         return cmd_obsidian(argv[1:])
+    if argv and argv[0] == "audit":
+        from devlog.audit import cmd_audit
+
+        return cmd_audit(argv[1:])
     if argv and argv[0] == "mcp":
         from devlog.mcp_server import cmd_mcp
 

@@ -143,7 +143,7 @@ def build_config_from_prompts() -> DevlogConfig:
 UNPROMPTED_FIELDS = (
     "project_aliases", "topics", "redact_patterns", "publish_empty_days", "model_prices",
     "related_backend", "period_retros", "ollama_url", "ollama_embed_model", "ollama_model",
-    "post_writer",
+    "post_writer", "redact_presets", "pipeline_dirs",
 )
 
 

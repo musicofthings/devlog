@@ -13,9 +13,10 @@ Transcripts never leave your machine unless you explicitly allow the (redacted) 
 
 | | |
 |---|---|
-| **Nightly public post** | Minutes, projects, the kinds of work, commits shipped, and your stack. Three privacy levels plus your own redaction regexes (MRNs, sample IDs, …); quiet days aren't published. |
+| **Nightly public post** | Minutes, projects, the kinds of work, commits shipped, and your stack. Three privacy levels, clinical redaction presets plus your own regexes (MRNs, sample IDs, …), and `devlog audit` to check what's already public; quiet days aren't published. |
 | **Obsidian knowledge graph** | Day notes linked to project, work-type, and topic hubs; weekly, monthly, and quarterly rollups; a Home dashboard with streaks and a heatmap; Bases views and per-project canvases. |
 | **What happened, not just how long** | Your commits that day, open threads captured from agent recaps (tick them off in Obsidian), related days, repo README and open PRs on each project hub. |
+| **Pipeline runs** | Nextflow and Snakemake runs from your project folders (and any `pipeline_dirs`): pipeline, version, profile, status, and duration in the day note, a hub per pipeline, and every failed run as an open thread. Vault only. |
 | **Tokens and cost** | Tokens per model, and an API-equivalent cost estimate per day, project, and period. |
 | **Local-first extras** | Optional [Ollama](https://ollama.com) models for semantic related days, period retros, and writing the post itself. None of it leaves your machine. |
 | **Explainable** | `devlog publish --dry-run --explain` shows exactly which sources, names, settings, and writer shaped the day's post. |
@@ -31,7 +32,7 @@ pip install -e ".[dev]"          # add ,mcp for the agent-memory server: ".[dev,
 devlog init                      # config, Obsidian vault detection, nightly schedule
 ```
 
-This installs a `devlog` command: `devlog run` (the default), `init`, `publish`, `hide`, `unhide`, `delete`, `obsidian`, and `mcp`. Everything below also works as `python main.py …`, which needs no install step.
+This installs a `devlog` command: `devlog run` (the default), `init`, `publish`, `hide`, `unhide`, `delete`, `obsidian`, `audit`, and `mcp`. Everything below also works as `python main.py …`, which needs no install step.
 
 ## Use
 
@@ -159,6 +160,27 @@ Who writes the post is set by `post_writer`:
 
 `redact_patterns` are your own regexes. Matches become `[REDACTED]` everywhere redaction runs: posts, the LLM digest, and vault notes. Use single-quoted TOML strings so backslashes stay literal.
 
+`redact_presets` switches on ready-made patterns: `mrn` (`MRN: 00123456`, "medical record number …"), `dob` (`DOB 03/14/1961`), `ssn`, `phone`, `email`, or `"clinical"` for all five. They're a starting point, not a de-identification guarantee: add your own sample-ID and accession formats to `redact_patterns`.
+
+```toml
+redact_presets = ["clinical"]
+```
+
+#### Auditing what's already public
+
+Filters and redaction only apply to posts written after they were added. `devlog audit` scans every post in `posts/` (hidden ones too, since their markdown is still in the repo):
+
+```bash
+devlog audit                      # report; exits 1 if anything leaks
+devlog audit --fix --no-commit    # rewrite flagged posts + rebuild the site; review with git diff
+devlog audit --fix                # same, then commit and push
+```
+
+- **LEAK** (fails the audit): harness text an agent CLI injected as if you'd typed it (`<mcp_meta_tools>`, `# AGENTS.md instructions`, skill preambles), credentials, matches of `redact_patterns`/`redact_presets`, and absolute paths with a user name (`C:\Users\name`, `/home/name`). Secrets and identifiers are masked in the report.
+- **note**: local folder layouts (`~\OneDrive\…`), your login name (sessions in your home folder used to be named after it), and continuation nudges quoted as the day's task ("Try again", "resume session").
+
+`--fix` drops the bad clauses from the "I worked on …" sentence (the project stays in "across …"), drops other sentences containing harness text, redacts the rest, and renames your login name to `home`. The vault's day notes take the new text on the next mirror (and immediately, if a vault is configured). For a full regeneration from transcripts, use `devlog publish --date … --force` instead. Git history still has the old text; only a history rewrite and force-push remove it, which devlog never does.
+
 With `publish_empty_days = false`, a day with no activity is not committed (`skipped_empty`), but it is still written to the vault so streaks and weekly notes stay accurate.
 
 ### Offline Obsidian vault
@@ -182,11 +204,26 @@ obsidian_on_delete = "preserve"   # preserve | remove
 
 Projects are identified by walking up from each session's working directory to its git root and naming the project after the `origin` remote (worktrees resolve to their main repo). Sessions started in your home folder become a `home` project instead of your username. Folders outside git fall back to the folder name. `project_aliases` is applied on top.
 
+#### Pipeline runs (Nextflow, Snakemake)
+
+Analysis work shows up next to the coding sessions that set it up. For every project active that day, devlog looks for launch folders up to two levels below the project root (skipping `work/`, `results/`, and environments) and reads what the engines already record there:
+
+- **Nextflow**: `.nextflow/history` (one line per run: time, duration, run name, status, command) and `.nextflow.log` for the resolved revision and the error of a failed run.
+- **Snakemake**: `.snakemake/log/*.snakemake.log` (start time from the file name, status and the failing rule from the log).
+
+If you launch runs outside your project folders (a scratch disk, an HPC work area), list those folders; runs there are named after their git repo or folder:
+
+```toml
+pipeline_dirs = ['D:\scratch\runs', '~/hpc/projects']
+```
+
+Each run appears in the day note (✅/❌/⏳ status, pipeline, version, run name, start time, duration, profile, project), on its project hub, and on a pipeline hub. A failed run becomes an open thread — "Fix failed nextflow run nf-core/rnaseq `sad_turing`: Error executing process > …" — that you tick off like any other. Jupyter notebooks your sessions edited are linked from the day note (`file://`). Nothing from pipeline runs reaches the public post.
+
 Layout after publish — the vault is a linked knowledge graph, not a pile of disconnected days:
 
 | Note | What it holds | Links to |
 |------|---------------|----------|
-| `DevLog/YYYY-MM-DD.md` | Day note: the post, topics, then per-project detail: what you asked for, **your commits that day** (linked to GitHub), files, tools, **tokens and cost**, and **open threads** as checkboxes; ends with **related days** | its projects, work types, topics, week, month, prev/next active day, Home |
+| `DevLog/YYYY-MM-DD.md` | Day note: the post, topics, then per-project detail: what you asked for, **your commits and pull requests that day** (linked to GitHub), files, **notebooks**, tools, **tokens and cost**, and **open threads** as checkboxes; then **pipeline runs**; ends with **related days** | its projects, work types, topics, pipelines, week, month, prev/next active day, Home |
 | `DevLog/Projects/<project>.md` | Project hub: repo link, **README summary**, **open pull requests**, **open threads**, active days, minutes, commits, tokens and cost, work mix, topics, frequently touched files, canvas link, timeline table | every day the project was worked on |
 | `DevLog/Work/<type>.md` | Work-type hub (`code-review`, `planning`, `bugfix`, `feature`, `refactor`, `testing`, `docs`, `ui-ux`, `git-ops`, `devops`, `data-analysis`, `learning`, `research`) | every day and project with that kind of work |
 | `DevLog/Weekly/YYYY-Www.md` | Weekly rollup: minutes and commits per project, tokens, work mix, quiet days | its days, projects, month(s), prev/next week |
@@ -194,6 +231,7 @@ Layout after publish — the vault is a linked knowledge graph, not a pile of di
 | `DevLog/Quarterly/YYYY-Qn.md` | Quarterly rollup, same shape, plus its months | its days, months, projects, prev/next quarter |
 | `DevLog/DevLog Home.md` | Dashboard: totals, streaks, API-equivalent cost, projects (with open-thread counts), work types, topics, recent days, quarters, months, weeks, an embedded Bases view, a Heatmap Calendar block, optional Dataview queries | everything |
 | `DevLog/Topics/<topic>.md` | Topic hub (scanpy, Nextflow, GATK, variant calling, FHIR, PyTorch, … or your own): days, projects, co-occurring topics, and a **Literature & notes** area that's never overwritten — put Zotero citekeys here | every day/project where the topic came up |
+| `DevLog/Pipelines/<pipeline>.md` | Pipeline hub (e.g. `nf-core-sarek`): every run with version, status, duration, profile, and project; versions used; recent failures with their error | every day and project that ran it |
 | `DevLog/Canvas/<project>.canvas` | JSON Canvas: project hub → last 12 active days → top topics. Regenerated until you rearrange it; then it's yours (delete to regenerate) | hub, days, topics |
 | `DevLog/DevLog.base` | Obsidian **Bases** views (Days, Projects, Weeks) over the note properties — no community plugin needed. Written once; edit it freely | — |
 | `Daily/YYYY-MM-DD.md` | Your daily note; devlog only upserts an embed between `%% devlog:daily:start %%` / `%% devlog:daily:end %%` | the day note |
@@ -339,7 +377,7 @@ The feed page shows a small status line — "Last published: 2026-08-06 (2026-08
 
 ## Slash commands for AI coding assistants
 
-If you use Claude Code, Codex, Cursor, or Grok Build to work in a repo with devlog installed, you can drive it with `/devlog-init`, `/devlog-publish`, `/devlog-delete`, `/devlog-hide`, `/devlog-unhide`, `/devlog-status`, and `/devlog-obsidian` instead of typing the CLI commands yourself. Each command just tells the assistant which `devlog` commands to run and how to handle the output (e.g. `/devlog-delete` and `/devlog-hide` always confirm with you before running the real, non-dry-run action).
+If you use Claude Code, Codex, Cursor, or Grok Build to work in a repo with devlog installed, you can drive it with `/devlog-init`, `/devlog-publish`, `/devlog-delete`, `/devlog-hide`, `/devlog-unhide`, `/devlog-status`, `/devlog-obsidian`, and `/devlog-audit` instead of typing the CLI commands yourself. Each command just tells the assistant which `devlog` commands to run and how to handle the output (e.g. `/devlog-delete` and `/devlog-hide` always confirm with you before running the real, non-dry-run action, and `/devlog-audit` shows a `--no-commit` rewrite before anything is pushed).
 
 All five surfaces are generated from one source per command in `commands/`. Edit `commands/<name>.md`, then run `python -m devlog.commands_sync`. CI fails if the generated files are stale (`--check`).
 

@@ -38,3 +38,7 @@ jobs:
 
       - name: Test
         run: python -m pytest -q
+
+      - name: Audit published posts
+        # Fails if a post in posts/ leaks harness text, secrets, or user paths.
+        run: python -m devlog audit --repo .

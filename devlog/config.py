@@ -116,6 +116,10 @@ class DevlogConfig:
     public_detail: str = DEFAULT_PUBLIC_DETAIL
     # Extra regexes redacted everywhere (MRNs, sample IDs, client names...).
     redact_patterns: list[str] = field(default_factory=list)
+    # Built-in identifier patterns: mrn, dob, ssn, phone, email, or "clinical" (all).
+    redact_presets: list[str] = field(default_factory=list)
+    # Folders outside your projects where you launch Nextflow/Snakemake (vault only).
+    pipeline_dirs: list[str] = field(default_factory=list)
     # False: days without activity are mirrored to the vault but not published.
     publish_empty_days: bool = False
     # USD per million tokens [input, output, cache_read]; adds to/overrides the
@@ -145,6 +149,9 @@ class DevlogConfig:
         self.obsidian_vault = _norm_path(self.obsidian_vault)
         self.obsidian_folder = _norm_path(self.obsidian_folder)
         self.obsidian_daily_folder = _norm_path(self.obsidian_daily_folder)
+        if isinstance(self.pipeline_dirs, list):
+            self.pipeline_dirs = [_norm_path(d) if isinstance(d, str) else d
+                                  for d in self.pipeline_dirs]
 
     def root_for(self, source: str) -> Path:
         """Data root for a source. Unknown names are a bug, not a fallback."""
@@ -201,6 +208,19 @@ class DevlogConfig:
                 re.compile(pattern)
             except (re.error, TypeError) as exc:
                 raise ValueError(f"redact_patterns: invalid regex {pattern!r}: {exc}") from exc
+        from devlog.privacy import REDACT_PRESETS
+
+        if not isinstance(self.redact_presets, list) or not all(
+            p in REDACT_PRESETS for p in self.redact_presets
+        ):
+            raise ValueError(
+                f"redact_presets must be a list drawn from {', '.join(REDACT_PRESETS)}; "
+                f"got {self.redact_presets!r}"
+            )
+        if not isinstance(self.pipeline_dirs, list) or not all(
+            isinstance(d, str) and d.strip() for d in self.pipeline_dirs
+        ):
+            raise ValueError("pipeline_dirs must be a list of folder paths")
         if self.related_backend not in RELATED_BACKENDS:
             raise ValueError(
                 f"related_backend must be one of {', '.join(RELATED_BACKENDS)}; "

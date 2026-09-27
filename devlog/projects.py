@@ -121,7 +121,15 @@ class ProjectResolver:
     home: Path = field(default_factory=Path.home)
     # GitHub CLI runner for PR lookups; None = use `gh` if it's installed.
     gh_run: GitRunner | None = None
+    # Extra folders to search for Nextflow/Snakemake runs (`pipeline_dirs`).
+    pipeline_dirs: list[str] = field(default_factory=list)
     _cache: dict[str, Project] = field(default_factory=dict, repr=False)
+    _launch_cache: dict[Path, list[Path]] = field(default_factory=dict, repr=False)
+    _run_cache: dict[Path, list] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_config(cls, cfg) -> ProjectResolver:
+        return cls(cfg.project_aliases, pipeline_dirs=list(cfg.pipeline_dirs))
 
     def __post_init__(self) -> None:
         self._aliases = {
@@ -169,6 +177,39 @@ class ProjectResolver:
             repo_url=repo_web_url(remote) if remote else None,
             source=source,
         )
+
+    def runs(self, paths: list[str], day: date) -> list[dict]:
+        """Pipeline runs started on `day` under `paths` or `pipeline_dirs`, oldest first.
+
+        A run found under one of `paths` (a project's folders) belongs to that
+        project; one found under `pipeline_dirs` is named after its launch
+        folder's git repo, or the folder itself.
+        """
+        from devlog.pipelines import find_launch_dirs, runs_in, runs_on
+
+        roots: list[tuple[Path, bool]] = []
+        for raw, owned in [*((p, True) for p in paths), *((p, False) for p in self.pipeline_dirs)]:
+            path = Path(raw).expanduser()
+            if path.is_dir() and path.resolve() != self.home.resolve() \
+                    and all(path != r for r, _ in roots):
+                roots.append((path, owned))
+        owners: dict[Path, str] = {}
+        for root, owned in roots:
+            if root not in self._launch_cache:
+                self._launch_cache[root] = find_launch_dirs(root)
+            for launch_dir in self._launch_cache[root]:
+                if launch_dir not in owners:
+                    owners[launch_dir] = str(root) if owned else str(launch_dir)
+        out: list[dict] = []
+        for launch_dir, owner in owners.items():
+            if launch_dir not in self._run_cache:
+                self._run_cache[launch_dir] = runs_in(launch_dir)
+            for run in runs_on(self._run_cache[launch_dir], day):
+                data = run.to_dict()
+                data.pop("launch_dir")
+                data["project"] = self.resolve(owner).name
+                out.append(data)
+        return sorted(out, key=lambda r: r["start"])
 
     def pull_requests(self, project: Project, day: date) -> list[dict]:
         """Your PRs in the project's GitHub repo that were opened or updated on `day`."""
