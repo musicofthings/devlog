@@ -20,6 +20,8 @@ open-thread checkbox (in a day note or a project hub) is remembered.
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import re
 from collections import Counter
@@ -27,18 +29,26 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from devlog.knowledge import headline, is_empty_day
+from devlog.related import Corpus, day_document
+from devlog.topics import TopicDetector
 from devlog.worktypes import describe
 
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 START = "%% devlog:start %%"
 END = "%% devlog:end %%"
 DEFAULT_TAIL = "\n\n## Notes\n\n"
+TOPIC_TAIL = (
+    "\n\n## Literature & notes\n\n"
+    "%% Yours: Zotero citekeys (`[[@citekey]]`), paper links, protocols. Never overwritten. %%\n\n"
+)
 HOME_NAME = "DevLog Home"
 BASE_NAME = "DevLog"
 PROJECTS_DIR = "Projects"
 WORK_DIR = "Work"
 WEEKLY_DIR = "Weekly"
 MONTHLY_DIR = "Monthly"
+TOPICS_DIR = "Topics"
+CANVAS_DIR = "Canvas"
 RECENT_DAYS = 14
 MAX_HUB_THREADS = 30
 _DAY_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
@@ -68,22 +78,35 @@ def load_index(folder_root: Path) -> dict[str, dict]:
     return {k: v for k, v in days.items() if isinstance(v, dict)}
 
 
+def load_state(folder_root: Path) -> dict:
+    """Persisted refresh state: ticked threads and hashes of generated canvases."""
+    data = _read_index(folder_root)
+    done = data.get("done_threads")
+    hashes = data.get("canvas_hashes")
+    if not isinstance(done, list):
+        done = []
+    if not isinstance(hashes, dict):
+        hashes = {}
+    return {
+        "done_threads": {d for d in done if isinstance(d, str)},
+        "canvas_hashes": {k: v for k, v in hashes.items() if isinstance(v, str)},
+    }
+
+
 def load_done_threads(folder_root: Path) -> set[str]:
-    done = _read_index(folder_root).get("done_threads")
-    return {d for d in done if isinstance(d, str)} if isinstance(done, list) else set()
+    return load_state(folder_root)["done_threads"]
 
 
-def save_index(
-    folder_root: Path, days: dict[str, dict], done_threads: set[str] | None = None
-) -> None:
-    if done_threads is None:
-        done_threads = load_done_threads(folder_root)
+def save_index(folder_root: Path, days: dict[str, dict], state: dict | None = None) -> None:
+    """Write days + state. `state=None` keeps the state already on disk."""
+    state = {**load_state(folder_root), **(state or {})}
     path = index_path(folder_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": INDEX_VERSION,
         "days": dict(sorted(days.items())),
-        "done_threads": sorted(done_threads),
+        "done_threads": sorted(state["done_threads"]),
+        "canvas_hashes": dict(sorted(state["canvas_hashes"].items())),
     }
     _write_if_changed(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
 
@@ -102,7 +125,8 @@ def _write_if_changed(path: Path, text: str) -> bool:
 _FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 
 
-def _tail(path: Path, legacy_generated: str | None = None) -> str:
+def _tail(path: Path, legacy_generated: str | None = None,
+          default: str = DEFAULT_TAIL) -> str:
     """User-owned text after the managed block (default Notes heading if none).
 
     A pre-graph day note has no END marker. If its body differs from what the
@@ -110,11 +134,11 @@ def _tail(path: Path, legacy_generated: str | None = None) -> str:
     whole old body under Notes rather than silently dropping it.
     """
     if not path.exists():
-        return DEFAULT_TAIL
+        return default
     text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
     idx = text.find(END)
     if idx != -1:
-        return text[idx + len(END) :] or DEFAULT_TAIL
+        return text[idx + len(END) :] or default
     body = _FRONTMATTER_RE.sub("", text, count=1).strip()
     if not body or legacy_generated is None or body == legacy_generated.strip():
         return DEFAULT_TAIL
@@ -122,15 +146,17 @@ def _tail(path: Path, legacy_generated: str | None = None) -> str:
 
 
 def _is_untouched(path: Path) -> bool:
-    return _tail(path).strip() in {"", "## Notes"}
+    tail = _tail(path).strip()
+    return tail in {"", "## Notes"} or tail == TOPIC_TAIL.strip()
 
 
 def _compose(
-    frontmatter: list[str], body: list[str], path: Path, legacy_generated: str | None = None
+    frontmatter: list[str], body: list[str], path: Path, legacy_generated: str | None = None,
+    default_tail: str = DEFAULT_TAIL,
 ) -> str:
     fm = "---\n" + "\n".join(frontmatter) + "\n---\n"
     managed = START + "\n" + "\n".join(body).strip("\n") + "\n" + END
-    return fm + managed + _tail(path, legacy_generated)
+    return fm + managed + _tail(path, legacy_generated, default_tail)
 
 
 def safe_text(text: str, *, table: bool = False) -> str:
@@ -227,6 +253,12 @@ class Graph:
     def home_rel(self) -> str:
         return self._rel(HOME_NAME)
 
+    def topic_rel(self, slug: str) -> str:
+        return self._rel(TOPICS_DIR, slug)
+
+    def canvas_file(self, slug: str) -> str:
+        return self._rel(CANVAS_DIR, f"{slug}.canvas")
+
     def path(self, rel: str) -> Path:
         return self.vault / f"{rel}.md"
 
@@ -247,6 +279,9 @@ class Graph:
 
     def home(self) -> str:
         return self.link(self.home_rel(), "Home")
+
+    def topic(self, slug: str, name: str, *, table: bool = False) -> str:
+        return self.link(self.topic_rel(slug), name, table=table)
 
 
 def iso_week(day: str) -> str:
@@ -276,7 +311,9 @@ def _checkbox(text: str, done: set[str], suffix: str = "") -> str:
 
 
 def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
-               display: dict[str, str], done: set[str]) -> str:
+               display: dict[str, str], done: set[str],
+               topic_names: dict[str, str] | None = None) -> str:
+    topic_names = topic_names or {}
     day = meta["date"]
     week, month = iso_week(day), month_of(day)
     projects = meta.get("projects") or []
@@ -303,15 +340,22 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
         fm.append(f"open_threads: {len(open_threads)}")
     fm += _yaml_list("projects", [g.project(p["slug"], display.get(p["slug"])) for p in projects])
     fm += _yaml_list("work_types", [g.work(w) for w in work])
+    topics = meta.get("topics") or []
+    if topics:
+        fm += _yaml_list("topics", [g.topic(t, topic_names.get(t, t)) for t in topics])
     if meta.get("sources"):
         fm += _yaml_list("sources", meta["sources"], quote=False)
     tags = ["devlog"] + [f"devlog/project/{_tag(p['slug'])}" for p in projects]
     tags += [f"devlog/work/{_tag(w)}" for w in work]
+    tags += [f"devlog/topic/{_tag(t)}" for t in topics]
     fm += _yaml_list("tags", tags, quote=False)
 
     nav = [f"← {g.day(prev_day)}" if prev_day else "← (first)", g.week(week), g.month(month),
            g.home(), f"{g.day(next_day)} →" if next_day else "(latest) →"]
     body = [" · ".join(nav), "", f"# {day}", "", (meta.get("summary") or "").strip(), ""]
+    if topics:
+        body += ["**Topics:** " + " · ".join(g.topic(t, topic_names.get(t, t)) for t in topics),
+                 ""]
 
     if projects:
         body.append("## Projects")
@@ -343,6 +387,15 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
             if p.get("threads"):
                 body.append("- **Open threads** (from the session recap):")
                 body += ["    " + _checkbox(t, done) for t in p["threads"]]
+    if meta.get("related"):
+        body += ["", "## Related days", ""]
+        for rel in meta["related"]:
+            line = f"- {g.day(rel['date'])}"
+            if rel.get("projects"):
+                line += " · " + ", ".join(g.project(sl, display.get(sl)) for sl in rel["projects"])
+            if rel.get("terms"):
+                line += " — shared: " + ", ".join(safe_text(t) for t in rel["terms"])
+            body.append(line)
     legacy = f"# {day}\n\n{(meta.get('summary') or '').strip()}"
     return _compose(fm, body, g.path(g.day_rel(day)), legacy)
 
@@ -376,7 +429,9 @@ def project_open_threads(slug: str, days: dict[str, dict], done: set[str]) -> li
 
 
 def render_project(g: Graph, slug: str, days: dict[str, dict], names: Counter,
-                   done: set[str]) -> str:
+                   done: set[str], topic_names: dict[str, str] | None = None,
+                   canvas: bool = False) -> str:
+    topic_names = topic_names or {}
     entries = []
     for day in sorted(days, reverse=True):
         for p in days[day].get("projects") or []:
@@ -394,6 +449,7 @@ def render_project(g: Graph, slug: str, days: dict[str, dict], names: Counter,
         _add_tokens(tokens, p.get("tokens"))
     repo = next((p["repo_url"] for _, _, p in entries if p.get("repo_url")), None)
     threads = project_open_threads(slug, days, done)
+    topics = Counter(t for _, _, p in entries for t in p.get("topics") or [])
     first, last = entries[-1][0], entries[0][0]
     aliases = sorted({n for n in names if n != slug})
 
@@ -409,6 +465,9 @@ def render_project(g: Graph, slug: str, days: dict[str, dict], names: Counter,
     if any(tokens.values()):
         fm += [f"tokens_in: {tokens['in']}", f"tokens_out: {tokens['out']}"]
     fm += _yaml_list("work_types", [g.work(w) for w, _ in work.most_common()])
+    if topics:
+        fm += _yaml_list("topics", [g.topic(t, topic_names.get(t, t))
+                                    for t, _ in topics.most_common()])
     fm += _yaml_list("tags", ["devlog", "devlog/project-hub",
                               f"devlog/project/{_tag(slug)}"], quote=False)
 
@@ -426,8 +485,13 @@ def render_project(g: Graph, slug: str, days: dict[str, dict], names: Counter,
     if work:
         body.append("**Work mix:** " + " · ".join(f"{g.work(w)} ×{n}"
                                                    for w, n in work.most_common()))
+    if topics:
+        body.append("**Topics:** " + " · ".join(f"{g.topic(t, topic_names.get(t, t))} ×{n}"
+                                                for t, n in topics.most_common(12)))
     if sources:
         body.append("**Sources:** " + ", ".join(sources))
+    if canvas:
+        body.append(f"**Canvas:** [[{g.canvas_file(slug)}|timeline canvas]]")
     if files:
         body.append("**Frequently touched files:** " + ", ".join(
             f"`{f.replace('`', '')}` ({n})" for f, n in files.most_common(10)))
@@ -480,9 +544,55 @@ def _period_bounds(kind: str, label: str) -> tuple[date, date]:
     return start, nxt - timedelta(days=1)
 
 
+def _period_review(g: Graph, kind: str, start: date, days: dict[str, dict],
+                   in_period: list[str], display: dict[str, str],
+                   topic_names: dict[str, str]) -> list[str]:
+    """Deterministic retro: this period vs the previous one, plus what was new."""
+    key = iso_week if kind == "week" else month_of
+    prev_label = key((start - timedelta(days=1)).isoformat())
+    link = g.week if kind == "week" else g.month
+    prev_days = [d for d in days if key(d) == prev_label]
+
+    def mins(ds: list[str]) -> int:
+        return sum(int(days[d].get("active_minutes") or 0) for d in ds)
+
+    def active(ds: list[str]) -> int:
+        return sum(1 for d in ds if not is_empty_day(days[d]))
+
+    cur_m, prev_m = mins(in_period), mins(prev_days)
+    lines = ["## Review", ""]
+    if prev_days:
+        delta = "" if not prev_m else f" ({(cur_m - prev_m) / prev_m:+.0%})"
+        lines.append(f"- **Active time:** {cur_m:,} min vs {prev_m:,} in {link(prev_label)}{delta}")
+        lines.append(f"- **Active days:** {active(in_period)} vs {active(prev_days)}")
+    earlier = {p["slug"] for d, m in days.items() if d < start.isoformat()
+               for p in m.get("projects") or []}
+    here = {p["slug"] for d in in_period for p in days[d].get("projects") or []}
+    new_projects = sorted(here - earlier)
+    if new_projects and earlier:
+        lines.append("- **New projects:** " + ", ".join(
+            g.project(sl, display.get(sl)) for sl in new_projects))
+    earlier_topics = {t for d, m in days.items() if d < start.isoformat()
+                      for t in m.get("topics") or []}
+    topic_counts = Counter(t for d in in_period for t in days[d].get("topics") or [])
+    new_topics = sorted(set(topic_counts) - earlier_topics)
+    if topic_counts:
+        lines.append("- **Top topics:** " + ", ".join(
+            f"{g.topic(t, topic_names.get(t, t))} ×{n}" for t, n in topic_counts.most_common(5)))
+    if new_topics and earlier_topics:
+        lines.append("- **First time:** " + ", ".join(
+            g.topic(t, topic_names.get(t, t)) for t in new_topics))
+    raised = sum(len(p.get("threads") or []) for d in in_period
+                 for p in days[d].get("projects") or [])
+    if raised:
+        lines.append(f"- **Threads raised:** {raised}")
+    return lines + [""] if len(lines) > 2 else []
+
+
 def render_period(g: Graph, kind: str, label: str, labels: list[str], days: dict[str, dict],
-                  display: dict[str, str]) -> str:
+                  display: dict[str, str], topic_names: dict[str, str] | None = None) -> str:
     """Weekly or monthly rollup."""
+    topic_names = topic_names or {}
     start, end = _period_bounds(kind, label)
     key = iso_week if kind == "week" else month_of
     link = g.week if kind == "week" else g.month
@@ -526,6 +636,8 @@ def render_period(g: Graph, kind: str, label: str, labels: list[str], days: dict
     if token_line:
         body += ["", f"Tokens: {token_line}"]
     body.append("")
+    if active:
+        body += _period_review(g, kind, start, days, in_period, display, topic_names)
     if project_days:
         body += ["## Projects", "", "| Project | Days | Min | Commits |", "|---|---:|---:|---:|"]
         for slug, n in project_days.most_common():
@@ -556,7 +668,8 @@ def render_period(g: Graph, kind: str, label: str, labels: list[str], days: dict
 
 
 def render_home(g: Graph, days: dict[str, dict], display: dict[str, str],
-                done: set[str]) -> str:
+                done: set[str], topic_names: dict[str, str] | None = None) -> str:
+    topic_names = topic_names or {}
     active = sorted((d for d in days if not is_empty_day(days[d])), reverse=True)
     total = sum(int(days[d].get("active_minutes") or 0) for d in days)
     proj_days: Counter = Counter()
@@ -573,13 +686,19 @@ def render_home(g: Graph, days: dict[str, dict], display: dict[str, str],
     months = sorted({month_of(d) for d in days}, reverse=True)
     open_by_project = {s: len(project_open_threads(s, days, done)) for s in proj_days}
 
+    current, longest = streaks(days)
+    topics = Counter(t for d in active for t in days[d].get("topics") or [])
     fm = ["type: devlog-home", f"active_days: {len(active)}", f"active_minutes: {total}",
-          f"open_threads: {sum(open_by_project.values())}"]
+          f"open_threads: {sum(open_by_project.values())}",
+          f"current_streak: {current}", f"longest_streak: {longest}"]
     fm += _yaml_list("tags", ["devlog", "devlog/home"], quote=False)
     body = [f"# {HOME_NAME}", "",
             f"**{len(active)}** active day(s) · **{total:,}** active min · "
             f"**{len(proj_days)}** project(s) · **{sum(open_by_project.values())}** open thread(s)"
-            + (f" · {g.day(active[-1])} → {g.day(active[0])}" if active else ""), ""]
+            + (f" · {g.day(active[-1])} → {g.day(active[0])}" if active else ""),
+            "",
+            f"🔥 Streak: **{current}** day(s) · longest **{longest}**",
+            ""]
     if proj_days:
         body += ["## Projects", "", "| Project | Days | Min | Open threads | Last active |",
                  "|---|---:|---:|---:|---|"]
@@ -591,6 +710,10 @@ def render_home(g: Graph, days: dict[str, dict], display: dict[str, str],
     if work:
         body += ["## Work types", "",
                  " · ".join(f"{g.work(w)} ×{n}" for w, n in work.most_common()), ""]
+    if topics:
+        body += ["## Topics", "",
+                 " · ".join(f"{g.topic(t, topic_names.get(t, t))} ×{n}"
+                            for t, n in topics.most_common(20)), ""]
     if active:
         body += ["## Recent days", ""]
         for d in active[:RECENT_DAYS]:
@@ -607,12 +730,22 @@ def render_home(g: Graph, days: dict[str, dict], display: dict[str, str],
     if weeks:
         body += ["## Weeks", "", " · ".join(g.week(w) for w in weeks), ""]
     folder = g.folder or "/"
+    pages_source = f"'\"{g.folder}\"'" if g.folder else ""
     base = "/".join(p for p in (g.folder, f"{BASE_NAME}.base") if p)
     body += [
         "## Views",
         "",
         "> [!example]- Obsidian Bases (core plugin, Obsidian 1.9+)",
         f"> ![[{base}]]",
+        "",
+        "> [!tip]- Activity heatmap (needs Dataview + Heatmap Calendar community plugins)",
+        "> ```dataviewjs",
+        f"> const entries = dv.pages({pages_source})",
+        ">   .where(p => p.type == \"devlog-day\" && p.active_minutes > 0)",
+        ">   .map(p => ({date: p.file.name, intensity: p.active_minutes,",
+        ">               content: p.active_minutes + \" min\"})).array();",
+        "> renderHeatmapCalendar(this.container, {year: new Date().getFullYear(), entries});",
+        "> ```",
         "",
         "> [!tip]- Live queries (needs the Dataview community plugin)",
         "> ```dataview",
@@ -686,6 +819,145 @@ def render_base(folder: str) -> str:
     )
 
 
+# ---------------------------------------------------------------- phase 3
+
+
+def annotate(days: dict[str, dict], detector: TopicDetector) -> dict[str, dict]:
+    """Copy of `days` with derived, never-persisted keys.
+
+    Topics (per project and per day) and related days are recomputed on every
+    refresh, so a new custom topic in config.toml applies to the whole history
+    on the next `devlog obsidian --reindex`.
+    """
+    out = copy.deepcopy(days)
+    for meta in out.values():
+        day_topics: set[str] = set()
+        for p in meta.get("projects") or []:
+            texts = [*(p.get("tasks") or []), *(p.get("threads") or []),
+                     *(c.get("subject") or "" for c in p.get("commits") or []),
+                     *(p.get("files") or [])]
+            p["topics"] = detector.detect(texts)
+            day_topics.update(p["topics"])
+        if not meta.get("projects"):
+            day_topics.update(detector.detect([meta.get("summary") or ""]))
+        meta["topics"] = sorted(day_topics)
+
+    active = {d: m for d, m in out.items() if not is_empty_day(m)}
+    corpus = Corpus({
+        d: day_document(m, [detector.names.get(t, t) for t in m["topics"]])
+        for d, m in active.items()
+    })
+    for d in active:
+        out[d]["related"] = [
+            {"date": other, "score": round(score, 3), "terms": terms,
+             "projects": [p["slug"] for p in out[other].get("projects") or []]}
+            for other, score, terms in corpus.similar(d, k=3)
+        ]
+    return out
+
+
+def streaks(days: dict[str, dict]) -> tuple[int, int]:
+    """(current, longest) runs of consecutive active days.
+
+    The current streak ends at the latest logged day; a quiet latest day
+    means the current streak is 0.
+    """
+    active = sorted(date.fromisoformat(d) for d, m in days.items() if not is_empty_day(m))
+    if not active:
+        return 0, 0
+    longest = run = 1
+    for prev, cur in zip(active, active[1:], strict=False):
+        run = run + 1 if cur - prev == timedelta(days=1) else 1
+        longest = max(longest, run)
+    latest = date.fromisoformat(max(days))
+    current = 0
+    active_set = set(active)
+    probe = latest
+    while probe in active_set:
+        current += 1
+        probe -= timedelta(days=1)
+    return current, longest
+
+
+def render_topic(g: Graph, slug: str, name: str, category: str, days: dict[str, dict],
+                 display: dict[str, str], topic_names: dict[str, str]) -> str:
+    matching = sorted((d for d, m in days.items() if slug in (m.get("topics") or [])),
+                      reverse=True)
+    projects: Counter = Counter()
+    co_topics: Counter = Counter()
+    for d in matching:
+        for p in days[d].get("projects") or []:
+            if slug in (p.get("topics") or []):
+                projects[p["slug"]] += 1
+        co_topics.update(t for t in days[d].get("topics") or [] if t != slug)
+    first, last = matching[-1], matching[0]
+    fm = ["type: devlog-topic", f"topic: {_q(name)}", f"category: {_q(category)}",
+          f"active_days: {len(matching)}", f"first_active: {first}", f"last_active: {last}"]
+    fm += _yaml_list("projects", [g.project(p, display.get(p)) for p, _ in projects.most_common()])
+    fm += _yaml_list("tags", ["devlog", "devlog/topic-hub", f"devlog/topic/{_tag(slug)}"],
+                     quote=False)
+    body = [f"# {name}", "", f"> [!info] {category}",
+            f"> **{len(matching)}** day(s) · first {g.day(first)} · last {g.day(last)}", ""]
+    if projects:
+        body.append("**Projects:** " + " · ".join(
+            f"{g.project(p, display.get(p))} ×{n}" for p, n in projects.most_common()))
+    if co_topics:
+        body.append("**Often together with:** " + " · ".join(
+            f"{g.topic(t, topic_names.get(t, t))} ×{n}" for t, n in co_topics.most_common(8)))
+    body += ["", "## Days", "", "| Day | Projects | Focus |", "|---|---|---|"]
+    for d in matching:
+        meta = days[d]
+        hits = [p for p in meta.get("projects") or [] if slug in (p.get("topics") or [])]
+        names = ", ".join(g.project(p["slug"], display.get(p["slug"]), table=True)
+                          for p in (hits or meta.get("projects") or []))
+        focus = headline({"projects": hits} if hits else meta)
+        body.append(f"| {g.day(d, table=True)} | {names} | {safe_text(focus, table=True)} |")
+    return _compose(fm, body, g.path(g.topic_rel(slug)), default_tail=TOPIC_TAIL)
+
+
+CANVAS_DAYS = 12
+_W, _H, _GAP = 400, 480, 60
+
+
+def render_canvas(g: Graph, slug: str, days: dict[str, dict],
+                  topic_names: dict[str, str]) -> str:
+    """JSON Canvas: project hub → its latest active days in order, topics below."""
+    entries = sorted(d for d, m in days.items()
+                     if any(p["slug"] == slug for p in m.get("projects") or []))
+    shown = entries[-CANVAS_DAYS:]
+    topics: Counter = Counter(
+        t for d in entries for p in days[d].get("projects") or []
+        if p["slug"] == slug for t in p.get("topics") or []
+    )
+    nodes: list[dict] = [{"id": "hub", "type": "file", "file": g.project_rel(slug) + ".md",
+                          "x": 0, "y": 0, "width": _W, "height": _H, "color": "6"}]
+    edges: list[dict] = []
+    x0 = _W + 2 * _GAP
+    nodes.append({"id": "timeline", "type": "group", "label": f"Last {len(shown)} active day(s)",
+                  "x": x0 - _GAP // 2, "y": -_GAP,
+                  "width": len(shown) * (_W + _GAP), "height": _H + 2 * _GAP})
+    prev = "hub"
+    for i, d in enumerate(shown):
+        node_id = f"day-{d}"
+        nodes.append({"id": node_id, "type": "file", "file": g.day_rel(d) + ".md",
+                      "x": x0 + i * (_W + _GAP), "y": 0, "width": _W, "height": _H})
+        edges.append({"id": f"e-{prev}-{node_id}", "fromNode": prev, "fromSide": "right",
+                      "toNode": node_id, "toSide": "left"})
+        prev = node_id
+    for j, (t, _n) in enumerate(topics.most_common(6)):
+        node_id = f"topic-{t}"
+        nodes.append({"id": node_id, "type": "file", "file": g.topic_rel(t) + ".md",
+                      "x": j * (_W + _GAP), "y": _H + 3 * _GAP, "width": _W, "height": 260,
+                      "color": "5"})
+        edges.append({"id": f"e-hub-{node_id}", "fromNode": "hub", "fromSide": "bottom",
+                      "toNode": node_id, "toSide": "top"})
+    return json.dumps({"nodes": nodes, "edges": edges}, indent=2) + "\n"
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 # ---------------------------------------------------------------- refresh
 
 
@@ -740,9 +1012,19 @@ def harvest_thread_state(paths: list[Path], done: set[str]) -> set[str]:
 
 
 def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
-                  done: set[str] | None = None) -> dict:
-    """Regenerate every managed note from `days`. Writes only changed files."""
+                  done: set[str] | None = None, *,
+                  detector: TopicDetector | None = None,
+                  canvas_hashes: dict[str, str] | None = None) -> dict:
+    """Regenerate every managed note from `days`. Writes only changed files.
+
+    Returns written/removed paths plus the updated persisted state
+    (`done_threads`, `canvas_hashes`) for the caller to save.
+    """
     g = Graph(vault, folder)
+    detector = detector or TopicDetector()
+    topic_names = detector.names
+    raw_days = days
+    days = annotate(raw_days, detector)
     names = _project_names(days)
     display = {slug: c.most_common(1)[0][0] for slug, c in names.items()}
     written: list[Path] = []
@@ -759,23 +1041,50 @@ def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
     neighbors = _neighbors(days)
     for d, meta in days.items():
         prev_d, next_d = neighbors[d]
-        emit(g.day_rel(d), render_day(g, meta, prev_d, next_d, display, done))
+        emit(g.day_rel(d), render_day(g, meta, prev_d, next_d, display, done, topic_names))
 
     active_days = {d: m for d, m in days.items() if not is_empty_day(m)}
+
+    # Canvases first, so hubs only link canvases that exist.
+    hashes = dict(canvas_hashes or {})
+    canvases: set[str] = set()
+    for slug in names:
+        rel = g.canvas_file(slug)
+        path = vault / rel
+        text = render_canvas(g, slug, active_days, topic_names)
+        if path.exists():
+            current = _sha(path.read_text(encoding="utf-8"))
+            if hashes.get(rel) != current:
+                canvases.add(slug)  # rearranged by the user: theirs now
+                continue
+        if not path.exists() or path.read_text(encoding="utf-8") != text:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+            written.append(path)
+        hashes[rel] = _sha(text)
+        canvases.add(slug)
+
     for slug, counter in names.items():
-        emit(g.project_rel(slug), render_project(g, slug, active_days, counter, done))
+        emit(g.project_rel(slug), render_project(g, slug, active_days, counter, done,
+                                                 topic_names, canvas=slug in canvases))
     work_types = {w for m in active_days.values() for w in m.get("work_types") or []}
     for slug in work_types:
         emit(g.work_rel(slug), render_work(g, slug, active_days, display))
+    topics = {t for m in active_days.values() for t in m.get("topics") or []}
+    for slug in topics:
+        emit(g.topic_rel(slug), render_topic(g, slug, topic_names.get(slug, slug),
+                                             detector.categories.get(slug, "custom"),
+                                             active_days, display, topic_names))
     weeks = sorted({iso_week(d) for d in days})
     for week in weeks:
-        emit(g.period_rel("week", week), render_period(g, "week", week, weeks, days, display))
+        emit(g.period_rel("week", week),
+             render_period(g, "week", week, weeks, days, display, topic_names))
     months = sorted({month_of(d) for d in days})
     for month in months:
         emit(g.period_rel("month", month),
-             render_period(g, "month", month, months, days, display))
+             render_period(g, "month", month, months, days, display, topic_names))
     if days:
-        emit(g.home_rel(), render_home(g, days, display, done))
+        emit(g.home_rel(), render_home(g, days, display, done, topic_names))
         base = g.root / f"{BASE_NAME}.base"
         if not base.exists():  # written once; the user may customize views
             base.parent.mkdir(parents=True, exist_ok=True)
@@ -784,12 +1093,23 @@ def refresh_graph(vault: Path, folder: str, days: dict[str, dict],
 
     removed = _prune_stale(g.root / PROJECTS_DIR, set(names))
     removed += _prune_stale(g.root / WORK_DIR, work_types)
+    removed += _prune_stale(g.root / TOPICS_DIR, topics)
     removed += _prune_stale(g.root / WEEKLY_DIR, set(weeks))
     removed += _prune_stale(g.root / MONTHLY_DIR, set(months))
+    canvas_dir = g.root / CANVAS_DIR
+    if canvas_dir.is_dir():
+        for path in canvas_dir.glob("*.canvas"):
+            rel = g.canvas_file(path.stem)
+            if path.stem in names or hashes.get(rel) != _sha(path.read_text(encoding="utf-8")):
+                continue  # still used, or edited by the user
+            path.unlink()
+            hashes.pop(rel, None)
+            removed.append(path)
     return {
         "written": [str(p) for p in written],
         "removed": [str(p) for p in removed],
         "done_threads": done,
+        "canvas_hashes": hashes,
     }
 
 

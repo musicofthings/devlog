@@ -168,6 +168,10 @@ def main(argv: list[str] | None = None) -> int:
         from devlog.obsidian import cmd_obsidian
 
         return cmd_obsidian(argv[1:])
+    if argv and argv[0] == "mcp":
+        from devlog.mcp_server import cmd_mcp
+
+        return cmd_mcp(argv[1:])
     if argv and argv[0] in {"run", "generate"}:
         return cmd_run(argv[1:])
     return cmd_run(argv)

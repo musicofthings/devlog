@@ -15,10 +15,11 @@ from devlog.config import DevlogConfig, default_config_path, load_config
 from devlog.knowledge import build_day_meta, parse_post_meta
 from devlog.models import SessionDigest
 from devlog.projects import ProjectResolver
+from devlog.topics import TopicDetector
 from devlog.vault_graph import (
     existing_day_notes,
-    load_done_threads,
     load_index,
+    load_state,
     refresh_graph,
     save_index,
 )
@@ -279,8 +280,23 @@ def refresh_vault(cfg: DevlogConfig, days: dict[str, dict] | None = None) -> dic
         days = {d: m for d, m in days.items() if d in present}
     try:
         save_index(folder_root, days)
-        graph = refresh_graph(root, _folder(cfg), days, load_done_threads(folder_root))
-        save_index(folder_root, days, graph.pop("done_threads"))
+        state = load_state(folder_root)
+        graph = refresh_graph(
+            root,
+            _folder(cfg),
+            days,
+            state["done_threads"],
+            detector=TopicDetector(cfg.topics),
+            canvas_hashes=state["canvas_hashes"],
+        )
+        save_index(
+            folder_root,
+            days,
+            {
+                "done_threads": graph.pop("done_threads"),
+                "canvas_hashes": graph.pop("canvas_hashes"),
+            },
+        )
     except OSError as exc:
         return {"status": "error", "error": str(exc)}
     return {"status": "refreshed", "days": len(days), **graph}

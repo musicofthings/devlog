@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.8.0"]
+mcp = ["mcp>=2.2,<3"]
 
 [project.scripts]
 devlog = "devlog.cli:main"

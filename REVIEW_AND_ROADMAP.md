@@ -111,20 +111,28 @@ linking it to anything else. Now every publish/backfill regenerates a linked gra
 - ✅ **Token tracking** per project, day, week, and month (#9). *Still open:* cost, which needs
   the model per session; most parsers don't record it yet.
 
-### Phase 3: second-brain features
+### Phase 3: second-brain features ✅ shipped
 
-- **Topic/entity notes:** detect libraries, tools, and datasets mentioned in prompts and files
-  (scanpy, Nextflow, GATK, VCF, CELLxGENE…) and link days to topic notes. Those topic notes
-  can link to literature notes (Zotero Integration plugin), which connects your build log to
-  your reading.
-- **"Related days" links** from local embeddings (sentence-transformers or Ollama
-  embeddings). Similar work gets linked across projects with no network calls.
-- **Weekly review note:** optional LLM retro (local model by default), streaks, and a
-  heatmap data file for the Heatmap Calendar plugin.
-- **Per-project JSON Canvas** timelines (`.canvas`).
-- **Agent-queryable memory:** a small MCP server over `DevLog/.devlog/index.json`. Claude Code,
-  Codex, and others could then answer "what did I do on vitreous last week, and what's still
-  open?" at session start.
+- ✅ **Topic notes** (`DevLog/Topics/`): a built-in catalog (genomics and single-cell tools,
+  workflow engines, clinical standards, datasets, languages, frameworks) plus your own
+  `[topics]` in config. Each topic hub lists days, projects, and topics that often appear
+  alongside it. It also has a **Literature & notes** area for Zotero citekeys that is never
+  overwritten. Topics are recomputed on every refresh, so a new custom topic applies to all of
+  your history after `--reindex`.
+- ✅ **Related days:** local TF-IDF similarity in pure Python (no model, no network). Each link
+  shows the terms the two days share. *Still open:* an optional neural-embedding backend
+  (Ollama or sentence-transformers) that is off by default.
+- ✅ **Review and streaks:**
+  - Weekly and monthly notes get a *Review* section: time and active days against the previous
+    period, new projects, first-time topics, and threads raised.
+  - Home shows the current and longest streak, plus a Heatmap Calendar block.
+  - *Still open:* an optional retro written by a local LLM.
+- ✅ **Per-project JSON Canvas** (`DevLog/Canvas/<project>.canvas`): the hub, then the last 12
+  active days, then the top topics. It is regenerated until you rearrange it. After that it's
+  yours; delete it to get a fresh one.
+- ✅ **Agent memory:** `devlog mcp`, a read-only stdio MCP server built on SDK 2.x, with six
+  tools: `list_projects`, `recent_activity`, `project_status`, `open_threads`, `search_log`,
+  and `day_log`.
 
 ### Phase 4: hardening
 
@@ -138,5 +146,5 @@ Items 3, 4, 5, 7, 10–14 above. Privacy (3) and rollback safety (4) come first.
 | Calendar navigation | **Calendar** + **Periodic Notes** | matches `Daily/` + `Weekly/` naming |
 | Open threads | **Tasks** | day notes and hubs emit `- [ ]` open threads |
 | Activity heatmap | **Heatmap Calendar** | feed it `active_minutes` |
-| Literature linking | **Zotero Integration** | topic notes ↔ papers (Phase 3) |
-| Semantic links | **Smart Connections** (local embeddings) | complements Phase 3 "related days" |
+| Literature linking | **Zotero Integration** | put `[[@citekey]]` links in a topic hub's *Literature & notes* |
+| Semantic links | **Smart Connections** (local embeddings) | complements the lexical "related days" |

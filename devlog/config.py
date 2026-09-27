@@ -103,6 +103,8 @@ class DevlogConfig:
     obsidian_on_delete: str = DEFAULT_OBSIDIAN_ON_DELETE
     # Folder name, repo name, or full path -> canonical project name (vault).
     project_aliases: dict[str, str] = field(default_factory=dict)
+    # Extra vault topics: display name -> match terms (added to the built-in catalog).
+    topics: dict[str, list[str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.claude_root = _norm_path(self.claude_root)
@@ -151,6 +153,12 @@ class DevlogConfig:
             for k, v in self.project_aliases.items()
         ):
             raise ValueError("project_aliases must be a table of \"name\" = \"canonical name\"")
+        if not isinstance(self.topics, dict) or not all(
+            isinstance(k, str) and k.strip() and isinstance(v, list)
+            and all(isinstance(t, str) and t.strip() for t in v)
+            for k, v in self.topics.items()
+        ):
+            raise ValueError('topics must be a table of "Name" = ["term", ...]')
         if self.obsidian_on_delete not in OBSIDIAN_ON_DELETE:
             raise ValueError(
                 f"obsidian_on_delete must be one of {', '.join(OBSIDIAN_ON_DELETE)}; "
@@ -191,6 +199,7 @@ def load_config(path: Path | None = None) -> DevlogConfig | None:
             data.get("obsidian_on_delete", DEFAULT_OBSIDIAN_ON_DELETE)
         ),
         project_aliases=data.get("project_aliases", {}),
+        topics=data.get("topics", {}),
     )
     cfg.validate()
     return cfg
@@ -232,6 +241,10 @@ def save_config(cfg: DevlogConfig, path: Path | None = None) -> Path:
     # A TOML table must come after every top-level key.
     body += "\n[project_aliases]\n" + "".join(
         f"{_toml_str(k)} = {_toml_str(v)}\n" for k, v in sorted(cfg.project_aliases.items())
+    )
+    body += "\n[topics]\n" + "".join(
+        f"{_toml_str(k)} = [{', '.join(_toml_str(t) for t in v)}]\n"
+        for k, v in sorted(cfg.topics.items())
     )
     cfg_path.write_text(body, encoding="utf-8")
     return cfg_path

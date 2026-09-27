@@ -144,6 +144,8 @@ Layout after publish — the vault is a linked knowledge graph, not a pile of di
 | `DevLog/Weekly/YYYY-Www.md` | Weekly rollup: minutes and commits per project, tokens, work mix, quiet days | its days, projects, month(s), prev/next week |
 | `DevLog/Monthly/YYYY-MM.md` | Monthly rollup, same shape as weekly | its days, weeks, projects, prev/next month |
 | `DevLog/DevLog Home.md` | Dashboard: projects (with open-thread counts), work types, recent days, months, weeks, an embedded Bases view, optional Dataview queries | everything |
+| `DevLog/Topics/<topic>.md` | Topic hub (scanpy, Nextflow, GATK, variant calling, FHIR, PyTorch, … or your own): days, projects, co-occurring topics, and a **Literature & notes** area that's never overwritten — put Zotero citekeys here | every day/project where the topic came up |
+| `DevLog/Canvas/<project>.canvas` | JSON Canvas: project hub → last 12 active days → top topics. Regenerated until you rearrange it; then it's yours (delete to regenerate) | hub, days, topics |
 | `DevLog/DevLog.base` | Obsidian **Bases** views (Days, Projects, Weeks) over the note properties — no community plugin needed. Written once; edit it freely | — |
 | `Daily/YYYY-MM-DD.md` | Your daily note; devlog only upserts an embed between `%% devlog:daily:start %%` / `%% devlog:daily:end %%` | the day note |
 
@@ -157,6 +159,26 @@ Obsidian features used:
 Work types are classified locally and deterministically from your prompts (keyword rules in `devlog/worktypes.py`, with a tool-mix fallback) — nothing is sent anywhere. Project names are case-folded (`Gurukul` and `gurukul` share one hub; the other spelling becomes an alias). Harness-injected text (MCP tool manifests, AGENTS.md bootstraps, skill preambles) is filtered out of both posts and notes.
 
 **Open threads.** When an agent ends a turn with a "Next steps" / "Follow-ups" / "TODO" list (or `- [ ]` items), those items are captured locally from the Claude Code, Codex, and Cursor transcripts and shown as checkboxes on the day note and as an *Open threads* list on the project hub. Tick one in either place (plain checkbox or the Tasks plugin) and it stays ticked across regenerations and disappears from the hub; untick it in the day note to reopen it. Commits come from `git log` in each project's repo, limited to your `user.email`. Assistant text, commits, and tokens only ever go to the vault, never to the public post.
+
+**Topics, related days, reviews.** Topics are detected locally from what you asked, commit subjects, open threads, and file names, using a built-in catalog (bioinformatics, workflow, clinical, data/ML, languages, frameworks) plus your own:
+
+```toml
+[topics]
+"CRISPR screens" = ["crispr", "sgrna", "mageck"]
+"Variant interpretation" = ["acmg", "clinvar", "pathogenic"]
+```
+
+Topics are recomputed on each refresh, so `devlog obsidian --reindex` applies a new topic to your whole history. Each day note gets **Related days** (local TF-IDF similarity — no model, no network — with the shared terms shown). Weekly and monthly notes get a **Review** section (time vs. the previous period, new projects, first-time topics, threads raised), and Home shows your current/longest **streak** and a Heatmap Calendar block.
+
+**Agent memory (MCP).** `devlog mcp` serves the vault index to coding agents over stdio (read-only), so a new session can recall prior work before starting:
+
+```bash
+pip install -e ".[mcp]"
+claude mcp add devlog -- devlog mcp      # Claude Code
+codex mcp add devlog -- devlog mcp       # Codex CLI
+```
+
+Tools: `list_projects`, `recent_activity(days, project)`, `project_status(project)`, `open_threads(project)`, `search_log(query)`, `day_log(date)`. The index is reread on every call, so a long-running server sees each night's publish.
 
 **Your notes are safe.** Every generated note is a managed block ending in `%% devlog:end %%`; anything you write below that line (in day notes, hubs, weeklies, Home) is preserved on every refresh. Hubs with no remaining days are deleted only if you never wrote in them. A day note you delete by hand in Obsidian is not recreated. Per-day metadata lives in `DevLog/.devlog/index.json` (hidden from Obsidian); hubs are regenerated from it and only changed files are rewritten.
 
