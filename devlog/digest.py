@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, tzinfo
 
 from devlog.models import RawSession, SessionDigest, SessionEvent
+from devlog.noise import is_injected_prompt
 from devlog.privacy import redact_sensitive_text
 
 ACTIVE_IDLE_CUTOFF = timedelta(minutes=30)
@@ -60,7 +61,7 @@ def slice_for_date(
             active_intervals=intervals,
         )
         for e in events:
-            if e.user_message:
+            if e.user_message and not is_injected_prompt(e.user_message):
                 digest.user_messages.append(e.user_message)
             if e.tool_name:
                 digest.tool_calls[e.tool_name] = digest.tool_calls.get(e.tool_name, 0) + 1

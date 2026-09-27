@@ -14,6 +14,7 @@ import re
 
 from devlog.digest import basename, build_raw_digest, total_active_minutes
 from devlog.models import SessionDigest
+from devlog.noise import headline_task
 from devlog.privacy import redact_sensitive_text
 
 # Kept tight: every word here is billed as input on every call.
@@ -87,8 +88,9 @@ def summarize_with_template(sessions: list[SessionDigest]) -> str:
     seen_projects: set[str] = set()
     for s in sessions:
         project = redact_sensitive_text(basename(s.project_path))
-        if s.user_messages and project not in seen_projects:
-            task = redact_sensitive_text(s.user_messages[0])
+        first = headline_task(s.user_messages)
+        if first and project not in seen_projects:
+            task = redact_sensitive_text(first)
             task = _EMOJI_RE.sub("", re.sub(r"\s+", " ", task)).strip()
             task = _SENTENCE_SPLIT_RE.split(task, maxsplit=1)[0].rstrip(".!? ")
             if task:

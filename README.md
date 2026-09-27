@@ -126,17 +126,36 @@ obsidian_daily_folder = "Daily"
 obsidian_on_delete = "preserve"   # preserve | remove
 ```
 
-Layout after publish:
+Layout after publish — the vault is a linked knowledge graph, not a pile of disconnected days:
 
-- `{vault}/DevLog/YYYY-MM-DD.md` — archive copy with YAML frontmatter
-- `{vault}/Daily/YYYY-MM-DD.md` — upserts a `%%devlog` region with `![[DevLog/YYYY-MM-DD]]` (does not clobber the rest of the daily note)
+| Note | What it holds | Links to |
+|------|---------------|----------|
+| `DevLog/YYYY-MM-DD.md` | Day note: the post, then per-project detail (what you asked for, files, tools, minutes) | its projects, work types, week, prev/next active day, Home |
+| `DevLog/Projects/<project>.md` | Project hub: active days, minutes, work mix, frequently touched files, timeline table | every day the project was worked on |
+| `DevLog/Work/<type>.md` | Work-type hub (`code-review`, `planning`, `bugfix`, `feature`, `refactor`, `testing`, `docs`, `ui-ux`, `git-ops`, `devops`, `data-analysis`, `learning`, `research`) | every day and project with that kind of work |
+| `DevLog/Weekly/YYYY-Www.md` | Weekly rollup: minutes per project, work mix, quiet days | its days and projects, prev/next week |
+| `DevLog/DevLog Home.md` | Dashboard: projects, work types, recent days, weeks, optional Dataview queries | everything |
+| `Daily/YYYY-MM-DD.md` | Your daily note; devlog only upserts an embed between `%% devlog:daily:start %%` / `%% devlog:daily:end %%` | the day note |
 
-Backfill posts that already exist in the repo:
+Obsidian features used:
+
+- **Properties** (`type`, `date`, `week`, `active_minutes`, `projects`, `work_types`, `sources`) — links inside properties count in the graph and backlinks, and work with Dataview/Bases.
+- **Nested tags** — `#devlog/project/<name>`, `#devlog/work/<type>`, `#devlog/project-hub`, `#devlog/work-hub`, `#devlog/week` — for tag-pane browsing and graph filters.
+- **Backlinks / graph view** — hubs are real notes, so "every day I touched vitreous" is the hub's backlinks. New vaults created by `devlog init` get graph color groups for hubs.
+- **Callouts, embeds, tables** — hubs render without plugins; Dataview queries on Home are optional (collapsed callout).
+
+Work types are classified locally and deterministically from your prompts (keyword rules in `devlog/worktypes.py`, with a tool-mix fallback) — nothing is sent anywhere. Project names are case-folded (`Gurukul` and `gurukul` share one hub; the other spelling becomes an alias). Harness-injected text (MCP tool manifests, AGENTS.md bootstraps, skill preambles) is filtered out of both posts and notes.
+
+**Your notes are safe.** Every generated note is a managed block ending in `%% devlog:end %%`; anything you write below that line (in day notes, hubs, weeklies, Home) is preserved on every refresh. Hubs with no remaining days are deleted only if you never wrote in them. A day note you delete by hand in Obsidian is not recreated. Per-day metadata lives in `DevLog/.devlog/index.json` (hidden from Obsidian); hubs are regenerated from it and only changed files are rewritten.
+
+Backfill posts that already exist in the repo (run once after upgrading — it also migrates old Daily Note embeds, which were wrapped in a `%%` comment and therefore invisible in Reading view):
 
 ```bash
 devlog obsidian --backfill --dry-run
-devlog obsidian --backfill
+devlog obsidian --backfill            # metadata recovered from post text
+devlog obsidian --backfill --rescan   # re-read local session logs for full per-project detail
 devlog obsidian --date 2026-08-13
+devlog obsidian --reindex             # regenerate hubs / weeklies / Home from the index only
 ```
 
 Hard delete leaves vault notes alone unless `obsidian_on_delete = remove` or you pass `--also-obsidian`. Soft-hide never touches Obsidian. A missing vault path warns and does not fail GitHub publish.

@@ -104,7 +104,7 @@ def resolve_publish_date(raw: str, *, today: date | None = None) -> date:
     return date.fromisoformat(raw)
 
 
-def collect_digests(cfg: DevlogConfig, target: date):
+def collect_raw_sessions(cfg: DevlogConfig) -> list[RawSession]:
     import devlog.sources  # noqa: F401
     from devlog.sources.base import get_sources
 
@@ -115,8 +115,12 @@ def collect_digests(cfg: DevlogConfig, target: date):
         if not root.exists():
             continue
         raw.extend(source.iter_sessions(root))
+    return raw
+
+
+def collect_digests(cfg: DevlogConfig, target: date):
     tz = datetime.now().astimezone().tzinfo
-    return slice_for_date(raw, target, tz)
+    return slice_for_date(collect_raw_sessions(cfg), target, tz)
 
 
 def _ensure_managed_paths_clean(repo: Path, git_run: GitRunner) -> None:
@@ -287,7 +291,7 @@ def publish_day(
     written = rebuild_site(repo, git_run=git_run, branch=cfg.branch)
     artifacts = [post_path, status_file, *written]
     post_markdown = post_path.read_text(encoding="utf-8")
-    obsidian_result = try_mirror_post(cfg, target, post_markdown)
+    obsidian_result = try_mirror_post(cfg, target, post_markdown, digests)
 
     result = {
         "status": "written",
@@ -430,11 +434,15 @@ def confirm_publish_day(
         )
         raise RuntimeError(f"{exc} ({note})") from exc
 
+    # The post may have been hand-edited since the review-mode write; mirror
+    # the final text (session-derived metadata in the vault index is kept).
+    obsidian_result = try_mirror_post(cfg, target, post_path.read_text(encoding="utf-8"))
     return {
         "status": "published_confirmed",
         "date": target.isoformat(),
         "post_path": str(post_path),
         "publish_mode": cfg.publish_mode,
+        "obsidian": obsidian_result,
     }
 
 
