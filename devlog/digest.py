@@ -72,6 +72,9 @@ def slice_for_date(
             digest.tokens_in += e.tokens_in
             digest.tokens_out += e.tokens_out
             digest.tokens_cache_read += e.tokens_cache_read
+            if e.threads:
+                # The latest recap of the day supersedes earlier ones.
+                digest.threads = list(e.threads)
         out.append(digest)
     return sorted(out, key=lambda s: s.start_time)
 

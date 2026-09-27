@@ -16,11 +16,13 @@ from devlog.digest import basename, total_active_minutes
 from devlog.models import SessionDigest
 from devlog.noise import headline_task, is_injected_prompt, is_low_signal_prompt
 from devlog.privacy import redact_sensitive_text
+from devlog.projects import Project, ProjectResolver
 from devlog.worktypes import classify
 
 MAX_TASKS = 5
 MAX_FILES = 8
 MAX_TOOLS = 5
+MAX_THREADS = 8
 TASK_CHARS = 160
 
 _SLUG_BAD_RE = re.compile(r"[^a-z0-9._-]+")
@@ -70,15 +72,41 @@ def _ordered_tasks(messages: list[str]) -> list[str]:
     return out
 
 
-def build_day_meta(day: date, digests: list[SessionDigest], post_markdown: str) -> dict:
+def _tokens(group: list[SessionDigest]) -> dict[str, int]:
+    return {
+        "in": sum(d.tokens_in for d in group),
+        "out": sum(d.tokens_out for d in group),
+        "cache": sum(d.tokens_cache_read for d in group),
+    }
+
+
+def _threads(group: list[SessionDigest]) -> list[str]:
+    out: list[str] = []
+    for d in sorted(group, key=lambda d: d.end_time):
+        for thread in d.threads:
+            cleaned = clean_task(thread)
+            if cleaned and cleaned not in out:
+                out.append(cleaned)
+    return out[:MAX_THREADS]
+
+
+def build_day_meta(
+    day: date,
+    digests: list[SessionDigest],
+    post_markdown: str,
+    resolver: ProjectResolver | None = None,
+) -> dict:
     """Metadata from the same session digests the post was generated from."""
+    resolver = resolver or ProjectResolver()
     by_project: dict[str, list[SessionDigest]] = {}
     names: dict[str, Counter] = {}
+    identities: dict[str, Project] = {}
     for digest in digests:
-        name = redact_sensitive_text(basename(digest.project_path))
-        slug = project_slug(name)
+        project = resolver.resolve(digest.project_path)
+        slug = project_slug(project.name)
         by_project.setdefault(slug, []).append(digest)
-        names.setdefault(slug, Counter())[name] += 1
+        names.setdefault(slug, Counter())[project.name] += 1
+        identities.setdefault(slug, project)
 
     projects: list[dict] = []
     for slug, group in by_project.items():
@@ -101,6 +129,10 @@ def build_day_meta(day: date, digests: list[SessionDigest], post_markdown: str) 
                 "tasks": tasks,
                 "files": [f for f, _ in files.most_common(MAX_FILES)],
                 "tools": {k: v for k, v in tools.most_common(MAX_TOOLS)},
+                "tokens": _tokens(group),
+                "threads": _threads(group),
+                "repo_url": identities[slug].repo_url,
+                "commits": resolver.commits(identities[slug], day),
             }
         )
     projects.sort(key=lambda p: (-p["minutes"], p["slug"]))
@@ -112,10 +144,13 @@ def build_day_meta(day: date, digests: list[SessionDigest], post_markdown: str) 
         sessions=len(digests),
         sources=sorted({d.source for d in digests}),
         origin="sessions",
+        tokens=_tokens(digests),
     )
 
 
-def parse_post_meta(day: date, post_markdown: str) -> dict:
+def parse_post_meta(
+    day: date, post_markdown: str, resolver: ProjectResolver | None = None
+) -> dict:
     """Best-effort metadata from a published post (template wording).
 
     Used for backfill when the original transcripts are gone. LLM-written
@@ -127,14 +162,15 @@ def parse_post_meta(day: date, post_markdown: str) -> dict:
     if match is None:
         return _finish(day, [], post_markdown, minutes=0, sessions=0, sources=[], origin="post")
 
-    raw_names = [n.strip() for n in match.group("projects").split(",") if n.strip()]
+    alias = resolver.alias if resolver is not None else (lambda n: n)
+    raw_names = [alias(n.strip()) for n in match.group("projects").split(",") if n.strip()]
     tasks_by_slug: dict[str, list[str]] = {}
     for chunk in (match.group("tasks") or "").split("; "):
         name, sep, task = chunk.partition(": ")
         if sep and not is_injected_prompt(task):
             cleaned = clean_task(task)
             if cleaned and not is_low_signal_prompt(cleaned):
-                tasks_by_slug.setdefault(project_slug(name), []).append(cleaned)
+                tasks_by_slug.setdefault(project_slug(alias(name)), []).append(cleaned)
 
     tools: dict[str, int] = {}
     for item in (match.group("tools") or "").split(", "):
@@ -190,6 +226,7 @@ def _finish(
     sources: list[str],
     origin: str,
     day_tools: dict[str, int] | None = None,
+    tokens: dict[str, int] | None = None,
 ) -> dict:
     summary = post_summary(post_markdown)
     work: list[str] = []
@@ -211,6 +248,7 @@ def _finish(
         "projects": projects,
         "summary": summary,
         "origin": origin,
+        "tokens": tokens,
     }
 
 

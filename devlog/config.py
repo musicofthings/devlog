@@ -101,6 +101,8 @@ class DevlogConfig:
     obsidian_folder: str = DEFAULT_OBSIDIAN_FOLDER
     obsidian_daily_folder: str = DEFAULT_OBSIDIAN_DAILY_FOLDER
     obsidian_on_delete: str = DEFAULT_OBSIDIAN_ON_DELETE
+    # Folder name, repo name, or full path -> canonical project name (vault).
+    project_aliases: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.claude_root = _norm_path(self.claude_root)
@@ -144,6 +146,11 @@ class DevlogConfig:
             )
         if not isinstance(self.allow_external_api, bool):
             raise ValueError("allow_external_api must be true or false")
+        if not isinstance(self.project_aliases, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) and v.strip()
+            for k, v in self.project_aliases.items()
+        ):
+            raise ValueError("project_aliases must be a table of \"name\" = \"canonical name\"")
         if self.obsidian_on_delete not in OBSIDIAN_ON_DELETE:
             raise ValueError(
                 f"obsidian_on_delete must be one of {', '.join(OBSIDIAN_ON_DELETE)}; "
@@ -183,6 +190,7 @@ def load_config(path: Path | None = None) -> DevlogConfig | None:
         obsidian_on_delete=str(
             data.get("obsidian_on_delete", DEFAULT_OBSIDIAN_ON_DELETE)
         ),
+        project_aliases=data.get("project_aliases", {}),
     )
     cfg.validate()
     return cfg
@@ -220,6 +228,10 @@ def save_config(cfg: DevlogConfig, path: Path | None = None) -> Path:
         f"obsidian_folder = {_toml_str(cfg.obsidian_folder)}\n"
         f"obsidian_daily_folder = {_toml_str(cfg.obsidian_daily_folder)}\n"
         f"obsidian_on_delete = {_toml_str(cfg.obsidian_on_delete)}\n"
+    )
+    # A TOML table must come after every top-level key.
+    body += "\n[project_aliases]\n" + "".join(
+        f"{_toml_str(k)} = {_toml_str(v)}\n" for k, v in sorted(cfg.project_aliases.items())
     )
     cfg_path.write_text(body, encoding="utf-8")
     return cfg_path

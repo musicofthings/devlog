@@ -95,19 +95,21 @@ linking it to anything else. Now every publish/backfill regenerates a linked gra
 
 ## Roadmap
 
-### Phase 2: a deeper graph (high value, low risk)
+### Phase 2: a deeper graph ✅ shipped
 
-- **Project identity:** git top-level + remote detection and `[project_aliases]` (#6). Project
-  hubs then link to the GitHub repo, its README summary, and open PRs.
-- **Commits in day notes:** run `git log --since/--until` for each project touched that day,
-  and list commits with links. This turns "asked for X" into "shipped Y".
-- **Open threads:** pull "next steps" / TODOs from the assistant's final message in each
-  session into `- [ ]` tasks. Each project hub gets an *Open threads* section (Tasks-plugin
-  compatible).
-- **Obsidian Bases:** generate `DevLog/DevLog.base` with native table views of days and
-  projects. This needs no community plugin; Dataview stays optional.
-- **Monthly and quarterly rollups**, compatible with Periodic Notes.
-- **Token and cost tracking** per project (#9).
+- ✅ **Project identity:** git root + `origin` remote (worktrees resolve to their main repo),
+  `home` for sessions started in `~`, and `[project_aliases]` (#6). Project hubs link the
+  GitHub repo. *Still open:* README summary and open PRs on the hub; using the same identity
+  for public posts.
+- ✅ **Commits in day notes:** your commits per project that day (filtered by `user.email`),
+  linked to GitHub, with counts rolled up to hubs, weeks, and months.
+- ✅ **Open threads:** follow-ups from each turn's recap (Claude Code, Codex, Cursor) become
+  checkboxes. Ticks persist across regeneration and sync between the day note and the hub.
+  *Still open:* Copilot, Grok, and OpenCode parsers.
+- ✅ **Obsidian Bases:** `DevLog/DevLog.base` (Days / Projects / Weeks), embedded on Home.
+- ✅ **Monthly rollups** (quarterly still open).
+- ✅ **Token tracking** per project, day, week, and month (#9). *Still open:* cost, which needs
+  the model per session; most parsers don't record it yet.
 
 ### Phase 3: second-brain features
 
@@ -134,7 +136,7 @@ Items 3, 4, 5, 7, 10–14 above. Privacy (3) and rollback safety (4) come first.
 |------|--------|-------|
 | Tables over properties | **Bases** (core) or **Dataview** | Home already ships Dataview queries |
 | Calendar navigation | **Calendar** + **Periodic Notes** | matches `Daily/` + `Weekly/` naming |
-| Open threads | **Tasks** | once Phase 2 emits `- [ ]` items |
+| Open threads | **Tasks** | day notes and hubs emit `- [ ]` open threads |
 | Activity heatmap | **Heatmap Calendar** | feed it `active_minutes` |
 | Literature linking | **Zotero Integration** | topic notes ↔ papers (Phase 3) |
 | Semantic links | **Smart Connections** (local embeddings) | complements Phase 3 "related days" |

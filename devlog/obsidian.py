@@ -14,7 +14,14 @@ from pathlib import Path
 from devlog.config import DevlogConfig, default_config_path, load_config
 from devlog.knowledge import build_day_meta, parse_post_meta
 from devlog.models import SessionDigest
-from devlog.vault_graph import existing_day_notes, load_index, refresh_graph, save_index
+from devlog.projects import ProjectResolver
+from devlog.vault_graph import (
+    existing_day_notes,
+    load_done_threads,
+    load_index,
+    refresh_graph,
+    save_index,
+)
 
 # The embed sits *between* two comment markers. Wrapping it inside a single
 # %% ... %% comment (the pre-graph format) hides it in Reading/Live Preview.
@@ -272,7 +279,8 @@ def refresh_vault(cfg: DevlogConfig, days: dict[str, dict] | None = None) -> dic
         days = {d: m for d, m in days.items() if d in present}
     try:
         save_index(folder_root, days)
-        graph = refresh_graph(root, _folder(cfg), days)
+        graph = refresh_graph(root, _folder(cfg), days, load_done_threads(folder_root))
+        save_index(folder_root, days, graph.pop("done_threads"))
     except OSError as exc:
         return {"status": "error", "error": str(exc)}
     return {"status": "refreshed", "days": len(days), **graph}
@@ -283,11 +291,12 @@ def _upsert_day(
     post_markdown: str,
     digests: list[SessionDigest] | None,
     days: dict[str, dict],
+    resolver: ProjectResolver,
 ) -> None:
     if digests is not None:
-        meta = build_day_meta(day, digests, post_markdown)
+        meta = build_day_meta(day, digests, post_markdown, resolver)
     else:
-        meta = parse_post_meta(day, post_markdown)
+        meta = parse_post_meta(day, post_markdown, resolver)
         previous = days.get(day.isoformat())
         # Re-mirroring (backfill, or a post hand-edited in review mode) keeps
         # the session-derived detail and only takes the new prose.
@@ -303,6 +312,7 @@ def try_mirror_post(
     digests: list[SessionDigest] | None = None,
     *,
     refresh: bool = True,
+    resolver: ProjectResolver | None = None,
 ) -> dict:
     """Write the day note + Daily Note embed, then relink the whole graph.
 
@@ -319,7 +329,8 @@ def try_mirror_post(
         daily = daily_path(cfg, day)
         folder_root = _folder_root(cfg)
         days = load_index(folder_root)
-        _upsert_day(day, post_markdown, digests, days)
+        resolver = resolver or ProjectResolver(cfg.project_aliases)
+        _upsert_day(day, post_markdown, digests, days, resolver)
         if refresh:
             present = existing_day_notes(folder_root) | {day.isoformat()}
             days = {d: m for d, m in days.items() if d in present}
@@ -393,6 +404,7 @@ def backfill_posts(
         paths = sorted(posts_dir.glob("*.md"))
     days: list[str] = []
     written = 0
+    resolver = ProjectResolver(cfg.project_aliases)
     for path in paths:
         match = _DATE_POST_RE.match(path.name)
         if match is None or not path.is_file():
@@ -403,7 +415,12 @@ def backfill_posts(
             continue
         digests = digests_by_day.get(day) if digests_by_day is not None else None
         result = try_mirror_post(
-            cfg, day, path.read_text(encoding="utf-8"), digests, refresh=False
+            cfg,
+            day,
+            path.read_text(encoding="utf-8"),
+            digests,
+            refresh=False,
+            resolver=resolver,
         )
         if result["status"] == "written":
             written += 1

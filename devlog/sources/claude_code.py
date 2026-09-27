@@ -21,6 +21,7 @@ from pathlib import Path
 
 from devlog.models import RawSession, SessionEvent
 from devlog.sources.base import register
+from devlog.threads import TurnRecap
 
 
 def decode_project_path(encoded_dir_name: str) -> str:
@@ -88,6 +89,12 @@ def parse_session_file(path: Path) -> RawSession | None:
     events: list[SessionEvent] = []
     cwd: str | None = None
     files_seen: list[str] = []
+    recap = TurnRecap()
+
+    def flush_recap() -> None:
+        done = recap.flush()
+        if done is not None:
+            events.append(SessionEvent(timestamp=done[0], threads=done[1]))
 
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -132,6 +139,8 @@ def parse_session_file(path: Path) -> RawSession | None:
                             text = block.get("text")
                             if isinstance(text, str) and text.strip():
                                 texts.append(text.strip())
+                if texts:
+                    flush_recap()
                 for text in texts:
                     events.append(SessionEvent(timestamp=ts, user_message=text))
 
@@ -144,6 +153,16 @@ def parse_session_file(path: Path) -> RawSession | None:
                 tokens_cache_read = _as_int(usage.get("cache_read_input_tokens"))
 
                 content = msg.get("content", [])
+                if isinstance(content, list):
+                    said = [
+                        block.get("text")
+                        for block in content
+                        if isinstance(block, dict)
+                        and block.get("type") == "text"
+                        and isinstance(block.get("text"), str)
+                    ]
+                    if said:
+                        recap.assistant(ts, "\n".join(said))
                 tool_blocks: list[dict] = []
                 if isinstance(content, list):
                     tool_blocks = [
@@ -191,6 +210,7 @@ def parse_session_file(path: Path) -> RawSession | None:
                             )
                         )
 
+    flush_recap()
     if not timestamps:
         return None
 

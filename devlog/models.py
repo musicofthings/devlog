@@ -14,6 +14,8 @@ class SessionEvent:
     tokens_in: int = 0
     tokens_out: int = 0
     tokens_cache_read: int = 0
+    # Follow-ups ("Next steps: ...") from the assistant's end-of-turn recap.
+    threads: list[str] | None = None
 
 
 @dataclass
@@ -41,6 +43,7 @@ class SessionDigest:
     tokens_out: int = 0
     tokens_cache_read: int = 0
     active_minutes: float | None = None
+    threads: list[str] = field(default_factory=list)
     active_intervals: list[tuple[datetime, datetime]] = field(default_factory=list, repr=False)
 
     @property

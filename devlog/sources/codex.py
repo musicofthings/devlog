@@ -12,6 +12,7 @@ from pathlib import Path
 
 from devlog.models import RawSession, SessionEvent
 from devlog.sources.base import register
+from devlog.threads import TurnRecap
 
 _SKIP_USER_PREFIXES = (
     "<environment_context",
@@ -126,6 +127,12 @@ def parse_rollout_file(path: Path) -> RawSession | None:
     files_seen: list[str] = []
     # Cumulative totals last seen, used to convert total_token_usage to deltas.
     prev_totals = {"input_tokens": 0, "output_tokens": 0, "cached_input_tokens": 0}
+    recap = TurnRecap()
+
+    def flush_recap() -> None:
+        done = recap.flush()
+        if done is not None:
+            events.append(SessionEvent(timestamp=done[0], threads=done[1]))
 
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -169,6 +176,7 @@ def parse_rollout_file(path: Path) -> RawSession | None:
                     if isinstance(msg, str):
                         cleaned = _clean_user_message(msg)
                         if cleaned:
+                            flush_recap()
                             events.append(SessionEvent(timestamp=ts, user_message=cleaned))
                 elif ptype == "token_count":
                     info = payload.get("info")
@@ -217,7 +225,12 @@ def parse_rollout_file(path: Path) -> RawSession | None:
                     for text in _extract_text_blocks(payload.get("content")):
                         cleaned = _clean_user_message(text)
                         if cleaned:
+                            flush_recap()
                             events.append(SessionEvent(timestamp=ts, user_message=cleaned))
+                elif ptype == "message" and payload.get("role") == "assistant":
+                    said = _extract_text_blocks(payload.get("content"))
+                    if said:
+                        recap.assistant(ts, "\n".join(said))
                 elif ptype in {"custom_tool_call", "function_call"}:
                     name = payload.get("name") or "unknown_tool"
                     raw_in = payload.get("input", payload.get("arguments"))
@@ -233,6 +246,7 @@ def parse_rollout_file(path: Path) -> RawSession | None:
                         )
                     )
 
+    flush_recap()
     if not timestamps:
         return None
     if project_path is None:

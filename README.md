@@ -124,17 +124,27 @@ obsidian_vault = "C:/Users/you/Documents/DevLog"   # filled by init
 obsidian_folder = "DevLog"
 obsidian_daily_folder = "Daily"
 obsidian_on_delete = "preserve"   # preserve | remove
+
+# Optional: fold folder/worktree/repo names into one project (vault only).
+# Keys match a folder name, a repo name, or a full path, case-insensitively.
+[project_aliases]
+"delete-post" = "devlog"      # a git worktree folder
+"window" = "devlog"
 ```
+
+Projects are identified by walking up from each session's working directory to its git root and naming the project after the `origin` remote (worktrees resolve to their main repo). Sessions started in your home folder become a `home` project instead of your username. Folders outside git fall back to the folder name. `project_aliases` is applied on top.
 
 Layout after publish — the vault is a linked knowledge graph, not a pile of disconnected days:
 
 | Note | What it holds | Links to |
 |------|---------------|----------|
-| `DevLog/YYYY-MM-DD.md` | Day note: the post, then per-project detail (what you asked for, files, tools, minutes) | its projects, work types, week, prev/next active day, Home |
-| `DevLog/Projects/<project>.md` | Project hub: active days, minutes, work mix, frequently touched files, timeline table | every day the project was worked on |
+| `DevLog/YYYY-MM-DD.md` | Day note: the post, then per-project detail: what you asked for, **your commits that day** (linked to GitHub), files, tools, **tokens**, and **open threads** as checkboxes | its projects, work types, week, month, prev/next active day, Home |
+| `DevLog/Projects/<project>.md` | Project hub: repo link, **open threads**, active days, minutes, commits, tokens, work mix, frequently touched files, timeline table | every day the project was worked on |
 | `DevLog/Work/<type>.md` | Work-type hub (`code-review`, `planning`, `bugfix`, `feature`, `refactor`, `testing`, `docs`, `ui-ux`, `git-ops`, `devops`, `data-analysis`, `learning`, `research`) | every day and project with that kind of work |
-| `DevLog/Weekly/YYYY-Www.md` | Weekly rollup: minutes per project, work mix, quiet days | its days and projects, prev/next week |
-| `DevLog/DevLog Home.md` | Dashboard: projects, work types, recent days, weeks, optional Dataview queries | everything |
+| `DevLog/Weekly/YYYY-Www.md` | Weekly rollup: minutes and commits per project, tokens, work mix, quiet days | its days, projects, month(s), prev/next week |
+| `DevLog/Monthly/YYYY-MM.md` | Monthly rollup, same shape as weekly | its days, weeks, projects, prev/next month |
+| `DevLog/DevLog Home.md` | Dashboard: projects (with open-thread counts), work types, recent days, months, weeks, an embedded Bases view, optional Dataview queries | everything |
+| `DevLog/DevLog.base` | Obsidian **Bases** views (Days, Projects, Weeks) over the note properties — no community plugin needed. Written once; edit it freely | — |
 | `Daily/YYYY-MM-DD.md` | Your daily note; devlog only upserts an embed between `%% devlog:daily:start %%` / `%% devlog:daily:end %%` | the day note |
 
 Obsidian features used:
@@ -145,6 +155,8 @@ Obsidian features used:
 - **Callouts, embeds, tables** — hubs render without plugins; Dataview queries on Home are optional (collapsed callout).
 
 Work types are classified locally and deterministically from your prompts (keyword rules in `devlog/worktypes.py`, with a tool-mix fallback) — nothing is sent anywhere. Project names are case-folded (`Gurukul` and `gurukul` share one hub; the other spelling becomes an alias). Harness-injected text (MCP tool manifests, AGENTS.md bootstraps, skill preambles) is filtered out of both posts and notes.
+
+**Open threads.** When an agent ends a turn with a "Next steps" / "Follow-ups" / "TODO" list (or `- [ ]` items), those items are captured locally from the Claude Code, Codex, and Cursor transcripts and shown as checkboxes on the day note and as an *Open threads* list on the project hub. Tick one in either place (plain checkbox or the Tasks plugin) and it stays ticked across regenerations and disappears from the hub; untick it in the day note to reopen it. Commits come from `git log` in each project's repo, limited to your `user.email`. Assistant text, commits, and tokens only ever go to the vault, never to the public post.
 
 **Your notes are safe.** Every generated note is a managed block ending in `%% devlog:end %%`; anything you write below that line (in day notes, hubs, weeklies, Home) is preserved on every refresh. Hubs with no remaining days are deleted only if you never wrote in them. A day note you delete by hand in Obsidian is not recreated. Per-day metadata lives in `DevLog/.devlog/index.json` (hidden from Obsidian); hubs are regenerated from it and only changed files are rewritten.
 
