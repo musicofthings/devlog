@@ -184,6 +184,18 @@ def _summarize_redacted(
     return _clamp_sentences(" ".join(parts))
 
 
+def summarize_with_local_model(raw_digest: str, client, model: str) -> str:
+    """Write the post with a local Ollama model (nothing leaves the machine)."""
+    text = client.generate(
+        f"{SUMMARY_SYSTEM_PROMPT}\n\nDigest:\n{raw_digest}\n\nPost:", model)
+    text = _EMOJI_RE.sub("", text).replace("!", ".")
+    # Small models like to announce themselves ("Here's the post:"); drop that line.
+    lines = [ln for ln in text.strip().splitlines() if ln.strip()]
+    if lines and lines[0].rstrip().endswith(":"):
+        lines = lines[1:]
+    return _clamp_sentences(" ".join(lines))
+
+
 def generate_post(
     sessions: list[SessionDigest],
     model: str | None = None,
@@ -191,29 +203,82 @@ def generate_post(
     allow_external_api: bool = False,
     public_detail: str = "verbatim",
     commit_counts: dict[str, int] | None = None,
+    post_writer: str = "auto",
+    local_client=None,
+    local_model: str | None = None,
+    report: dict | None = None,
 ) -> str:
-    # Empty day: never spend tokens on the API. "summary" is two numbers and
-    # a list of work types; a model adds only cost and a chance to embellish.
-    if not sessions or public_detail == "summary":
+    """Write the day's public post.
+
+    post_writer: "auto" (Claude API when allowed and a key is set, else the
+    template), "template", or "ollama" (a local model via `local_client`).
+    Every model path sees the same `public_detail`-reduced digest, and falls
+    back to the template on failure. `report`, if given, records which writer
+    produced the post and why (for `devlog publish --explain`).
+    """
+    report = report if report is not None else {}
+    report.update({"public_detail": public_detail, "post_writer": post_writer})
+
+    def template(reason: str) -> str:
+        report.update({"writer": "template", "reason": reason})
         return summarize_with_template(sessions, public_detail, commit_counts)
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    # Compact digest for the LLM path; full digest remains available for audits.
+    if not sessions:
+        return template("no sessions that day")
+    if public_detail == "summary":
+        # Two numbers and a list of work types; a model adds only cost and a
+        # chance to embellish.
+        return template('public_detail = "summary" never uses a model')
+    if post_writer == "template":
+        return template('post_writer = "template"')
+
+    # Compact digest for model paths; full digest remains available for audits.
     # Below "verbatim", prompts/files/commands never reach the model either.
     raw_digest = build_raw_digest(sessions, compact=True, detail=public_detail)
     if commit_counts:
         raw_digest += "\nCommits shipped: " + ", ".join(
             f"{name} {n}" for name, n in sorted(commit_counts.items()))
-    if api_key and allow_external_api:
+
+    if post_writer == "ollama":
+        if local_client is None or not local_model:
+            return template("post_writer = ollama but no local model is configured")
         try:
-            post = summarize_with_claude(
-                raw_digest,
-                api_key=api_key,
-                model=model or CLAUDE_MODEL,
-            )
-            if post:
-                # Model output can echo secrets from the digest; redact again.
-                return redact_sensitive_text(post)
-        except Exception as e:  # network/auth issues -> don't crash the pipeline
-            print(f"[warn] Claude summarization failed ({e}); falling back to template.")
-    return summarize_with_template(sessions, public_detail, commit_counts)
+            post = summarize_with_local_model(raw_digest, local_client, local_model)
+        except Exception as e:  # noqa: BLE001 - server down, model missing, ...
+            print(f"[warn] Local model failed ({e}); falling back to template.")
+            return template(f"local model failed: {e}")
+        if not post:
+            return template("local model returned nothing")
+        report.update({"writer": f"ollama:{local_model}", "reason": "post_writer = ollama"})
+        return redact_sensitive_text(post)
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not allow_external_api:
+        return template("allow_external_api is off")
+    if not api_key:
+        return template("ANTHROPIC_API_KEY is not set")
+    try:
+        post = summarize_with_claude(
+            raw_digest,
+            api_key=api_key,
+            model=model or CLAUDE_MODEL,
+        )
+        if post:
+            report.update({"writer": f"claude:{model or CLAUDE_MODEL}",
+                           "reason": "allow_external_api is on"})
+            # Model output can echo secrets from the digest; redact again.
+            return redact_sensitive_text(post)
+        return template("Claude returned nothing")
+    except Exception as e:  # network/auth issues -> don't crash the pipeline
+        print(f"[warn] Claude summarization failed ({e}); falling back to template.")
+        return template(f"Claude API failed: {e}")
+
+
+def post_writer_args(cfg) -> dict:
+    """generate_post kwargs for the configured post writer."""
+    args: dict = {"post_writer": cfg.post_writer}
+    if cfg.post_writer == "ollama":
+        from devlog.local_llm import OllamaClient
+
+        args.update(local_client=OllamaClient(cfg.ollama_url), local_model=cfg.ollama_model)
+    return args

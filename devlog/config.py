@@ -32,6 +32,7 @@ DEFAULT_MODEL = "claude-sonnet-5"
 PUBLIC_DETAIL_LEVELS = ("summary", "projects", "verbatim")
 DEFAULT_PUBLIC_DETAIL = "projects"
 RELATED_BACKENDS = ("tfidf", "ollama")
+POST_WRITERS = ("auto", "template", "ollama")
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -122,6 +123,9 @@ class DevlogConfig:
     model_prices: dict[str, list[float]] = field(default_factory=dict)
     # Optional local models (Ollama on this machine; see devlog/local_llm.py).
     related_backend: str = "tfidf"  # tfidf | ollama
+    # Who writes the public post: auto (Claude API if allowed, else template),
+    # template, or ollama (local model, same privacy-reduced digest).
+    post_writer: str = "auto"
     period_retros: bool = False
     ollama_url: str = "http://localhost:11434"
     ollama_embed_model: str = "nomic-embed-text"
@@ -201,6 +205,10 @@ class DevlogConfig:
             raise ValueError(
                 f"related_backend must be one of {', '.join(RELATED_BACKENDS)}; "
                 f"got {self.related_backend!r}"
+            )
+        if self.post_writer not in POST_WRITERS:
+            raise ValueError(
+                f"post_writer must be one of {', '.join(POST_WRITERS)}; got {self.post_writer!r}"
             )
         if not isinstance(self.period_retros, bool):
             raise ValueError("period_retros must be true or false")

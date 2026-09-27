@@ -13,7 +13,7 @@ from devlog.models import RawSession
 from devlog.privacy import configure_redaction
 from devlog.projects import ProjectResolver, count_commits
 from devlog.publish import scan_start
-from devlog.summarize import generate_post
+from devlog.summarize import generate_post, post_writer_args
 
 
 def build_run_parser() -> argparse.ArgumentParser:
@@ -138,6 +138,7 @@ def cmd_run(argv: list[str] | None = None) -> int:
         allow_external_api=cfg.allow_external_api,
         public_detail=cfg.public_detail,
         commit_counts=commit_counts,
+        **post_writer_args(cfg),
     )
     print("=== Daily post ===\n")
     print(post)

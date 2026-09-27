@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Daily Dev Log</title>
-  <meta name="description" content="Turn AI coding sessions into one short, factual build-log post per day." />
+  <meta name="description" content="Turn local AI coding sessions into a public daily build log and a private Obsidian second brain." />
   <script>
     (function () {
       try {
@@ -111,6 +111,7 @@
       background: transparent;
       color: var(--amber);
     }
+    html[data-theme="dark"] .cta.ghost { color: var(--amber); }
 
     .ticker {
       position: absolute;
@@ -203,6 +204,60 @@
       color: #546275;
     }
 
+    .features {
+      padding: clamp(2.5rem, 7vw, 5rem) clamp(1.5rem, 4vw, 3rem);
+      background: var(--bg);
+    }
+    .features h2 {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: clamp(1.8rem, 4vw, 2.6rem);
+      margin: 0 0 0.5rem;
+      color: var(--ink);
+    }
+    html[data-theme="dark"] .features h2 { color: var(--paper); }
+    .features > p {
+      margin: 0 0 1.75rem;
+      max-width: 38rem;
+      color: var(--mist);
+      line-height: 1.55;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1rem;
+    }
+    @media (max-width: 900px) { .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 600px) { .feature-grid { grid-template-columns: 1fr; } }
+    .feature {
+      border: 1px solid var(--line);
+      padding: 1.15rem 1.2rem;
+    }
+    .feature .label {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--amber);
+      margin-bottom: 0.55rem;
+    }
+    .feature h3 {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: 1.25rem;
+      margin: 0 0 0.5rem;
+      color: var(--ink);
+    }
+    html[data-theme="dark"] .feature h3 { color: var(--paper); }
+    .feature p {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      color: var(--mist);
+    }
+    .feature code {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.85em;
+    }
+
     footer {
       background: var(--footer-bg);
       color: var(--mist);
@@ -231,14 +286,16 @@
 
   <header class="hero">
     <div class="ticker" aria-hidden="true">
-      <div>&gt; src=claude_code · variantgpt · stream VCF parser</div>
-      <div>&gt; src=codex · gurukul · apply_patch · pytest</div>
-      <div>&gt; src=cursor · devlog · agent transcripts · <strong>one post</strong><span class="cursor"></span></div>
+      <div>&gt; claude_code · codex · cursor · grok · copilot · opencode</div>
+      <div>&gt; post: 54 min on vitreous · code-review · <strong>shipped 3 commits</strong></div>
+      <div>&gt; vault: day → projects · topics · open threads · Q3<span class="cursor"></span></div>
     </div>
     <div class="hero-copy">
       <h1 class="brand">Daily Dev Log</h1>
       <p class="lede">
-        Turn AI coding sessions into one short, factual first-person build-log post per day — local CLI with Claude Code, Codex, and Cursor.
+        Turn your local AI coding sessions into a short, factual build-log post every day,
+        and a private Obsidian second brain that remembers what you shipped and what's still open.
+        Transcripts stay on your machine.
       </p>
       <div class="cta-row">
         <a class="cta" href="https://github.com/musicofthings/devlog">Open on GitHub →</a>
@@ -247,30 +304,78 @@
     </div>
   </header>
 
+  <section class="features" id="features">
+    <h2>What it does</h2>
+    <p>A local CLI reads the session logs your coding agents already keep, then writes two things.
+      The public log says what kind of work happened. The private vault keeps everything.</p>
+    <div class="feature-grid">
+      <article class="feature">
+        <div class="label">Public</div>
+        <h3>A post a day</h3>
+        <p>Minutes, projects, kinds of work, commits shipped, and your stack, published to
+          GitHub Pages every night. Quiet days are skipped.</p>
+      </article>
+      <article class="feature">
+        <div class="label">Privacy</div>
+        <h3>You choose what leaves</h3>
+        <p>Three detail levels (<code>summary</code>, <code>projects</code>, <code>verbatim</code>)
+          and your own redaction patterns for identifiers such as MRNs or sample IDs.
+          The default never quotes your prompts.</p>
+      </article>
+      <article class="feature">
+        <div class="label">Obsidian</div>
+        <h3>A linked second brain</h3>
+        <p>Day notes link to project, work-type, and topic hubs, plus weekly, monthly, and quarterly
+          rollups, streaks, a heatmap, Bases views, and per-project canvases.</p>
+      </article>
+      <article class="feature">
+        <div class="label">Follow-through</div>
+        <h3>What's still open</h3>
+        <p>"Next steps" from your agents' recaps become checkboxes that stay ticked. Your commits,
+          related days, repo README, and open PRs sit alongside them.</p>
+      </article>
+      <article class="feature">
+        <div class="label">Agents</div>
+        <h3>Memory over MCP</h3>
+        <p><code>devlog mcp</code> lets Claude Code or Codex ask what you did on a project last
+          week, and what you left unfinished.</p>
+      </article>
+      <article class="feature">
+        <div class="label">Local-first</div>
+        <h3>Nothing leaves by default</h3>
+        <p>Parsing, classification, topics, similarity, and cost estimates all run locally.
+          Optional Ollama models add semantic links and retros on your own machine.</p>
+      </article>
+    </div>
+  </section>
+
   <section class="results" id="results">
-    <h2>Verified locally</h2>
-    <p>Phase 2 acceptance checks against bundled fixtures for Claude Code, Codex rollouts, and Cursor agent transcripts.</p>
+    <h2>Verified</h2>
+    <p>CI runs every change on Linux and Windows across Python 3.11–3.13, against bundled
+      fixtures for every source.</p>
     <div class="grid">
       <article class="card">
         <div class="label">pytest</div>
-        <div class="value">106 passed</div>
-        <div class="note">Claude, Codex, Cursor parsers · day slicing · CLI · evals</div>
+        <div class="value">300+ passing</div>
+        <div class="note">parsers · privacy · vault graph · rollback · MCP</div>
       </article>
       <article class="card">
         <div class="label">Offline evals</div>
-        <div class="value">8 / 8</div>
+        <div class="value">10 / 10</div>
         <div class="note"><code>python -m evals.run</code></div>
       </article>
       <article class="card">
         <div class="label">Sources</div>
-        <div class="value">3 live</div>
-        <div class="note">claude_code · codex · cursor</div>
+        <div class="value">6 live</div>
+        <div class="note">claude_code · codex · cursor · grok · copilot · opencode</div>
       </article>
     </div>
   </section>
 
   <footer>
-    musicofthings/devlog · Phase 2 · <a href="https://github.com/musicofthings/devlog">source</a>
+    musicofthings/devlog · <a href="https://github.com/musicofthings/devlog">source</a> ·
+    <a href="https://github.com/musicofthings/devlog/blob/main/REVIEW_AND_ROADMAP.md">roadmap</a> ·
+    <a href="log/index.html">log</a>
   </footer>
   <script src="assets/theme.js"></script>
 </body>

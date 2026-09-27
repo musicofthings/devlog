@@ -145,6 +145,7 @@ def build_day_meta(
                 "repo_url": identities[slug].repo_url,
                 "root": str(identities[slug].root) if identities[slug].root else None,
                 "commits": resolver.commits(identities[slug], day),
+                "pull_requests": resolver.pull_requests(identities[slug], day),
             }
         )
     projects.sort(key=lambda p: (-p["minutes"], p["slug"]))

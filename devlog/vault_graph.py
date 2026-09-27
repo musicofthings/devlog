@@ -354,6 +354,9 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
     commits = sum(len(p.get("commits") or []) for p in projects)
     if commits:
         fm.append(f"commits: {commits}")
+    prs = sum(len(p.get("pull_requests") or []) for p in projects)
+    if prs:
+        fm.append(f"pull_requests: {prs}")
     day_usd = _cost(g, *(p.get("tokens_by_model") for p in projects))[0]
     if day_usd:
         fm.append(f"cost_usd: {day_usd:.2f}")
@@ -398,6 +401,11 @@ def render_day(g: Graph, meta: dict, prev_day: str | None, next_day: str | None,
                 for c in p["commits"]:
                     sha = f"[`{c['short']}`]({c['url']})" if c.get("url") else f"`{c['short']}`"
                     body.append(f"    - {sha} {safe_text(c.get('subject') or '')}")
+            if p.get("pull_requests"):
+                body.append("- **Pull requests:**")
+                for pr in p["pull_requests"]:
+                    body.append(f"    - [#{pr['number']}]({pr['url']}) "
+                                f"{safe_text(pr.get('title') or '')} · {pr.get('state', '')}")
             if p.get("files"):
                 body.append("- **Files:** " + ", ".join(f"`{f.replace('`', '')}`"
                                                         for f in p["files"]))

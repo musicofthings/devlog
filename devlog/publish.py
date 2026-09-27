@@ -19,11 +19,11 @@ from devlog.gitutil import (
 from devlog.gitutil import default_git as _default_git
 from devlog.models import RawSession
 from devlog.obsidian import planned_paths, try_mirror_post
-from devlog.privacy import configure_redaction
+from devlog.privacy import configure_redaction, user_redaction_count
 from devlog.projects import ProjectResolver, count_commits
 from devlog.site import list_posts, rebuild_site, write_post_markdown
 from devlog.status import record_event, status_path
-from devlog.summarize import generate_post
+from devlog.summarize import generate_post, post_writer_args
 
 SCAN_SLACK = timedelta(hours=1)
 MANAGED_PATHS = (
@@ -101,6 +101,61 @@ def _restore_failed_publish(
     return "publish artifacts were rolled back; tree clean for retry"
 
 
+def build_explain(cfg: DevlogConfig, target: date, source_stats: dict, digests, resolver,
+                  commit_counts: dict[str, int], writer: dict, redactions: int) -> dict:
+    """Everything that shaped the day's post, for `devlog publish --explain`."""
+    projects: dict[str, dict] = {}
+    for d in digests:
+        project = resolver.resolve(d.project_path)
+        entry = projects.setdefault(project.name, {
+            "named_by": project.source, "sessions": 0, "paths": [],
+            "commits": commit_counts.get(project.name, 0)})
+        entry["sessions"] += 1
+        if d.project_path not in entry["paths"]:
+            entry["paths"].append(d.project_path)
+    return {
+        "date": target.isoformat(),
+        "scan_since": scan_start(target).isoformat(timespec="minutes"),
+        "sources": source_stats,
+        "sessions_that_day": len(digests),
+        "projects": projects,
+        "settings": {
+            "publish_mode": cfg.publish_mode,
+            "public_detail": cfg.public_detail,
+            "post_writer": cfg.post_writer,
+            "allow_external_api": cfg.allow_external_api,
+            "publish_empty_days": cfg.publish_empty_days,
+            "redact_patterns": len(cfg.redact_patterns),
+        },
+        "writer": writer,
+        "user_redactions": redactions,
+    }
+
+
+def format_explain(explain: dict) -> str:
+    """Human-readable --explain block."""
+    s = explain["settings"]
+    lines = [f"--- why this post looks the way it does ({explain['date']}) ---",
+             f"settings: public_detail={s['public_detail']} post_writer={s['post_writer']} "
+             f"allow_external_api={str(s['allow_external_api']).lower()} "
+             f"publish_mode={s['publish_mode']} "
+             f"publish_empty_days={str(s['publish_empty_days']).lower()}",
+             f"scan: log files modified since {explain['scan_since']}"]
+    for name, st in explain["sources"].items():
+        state = f"{st['sessions']} session(s) parsed" if st["found"] else "no data root"
+        lines.append(f"  {name:<12} {state}  ({st['root']})")
+    lines.append(f"sessions that day: {explain['sessions_that_day']}")
+    for name, p in explain["projects"].items():
+        commits = f", {p['commits']} commit(s)" if p["commits"] else ""
+        lines.append(f"  {name}: named by {p['named_by']}, {p['sessions']} session(s)"
+                     f"{commits}  <- {', '.join(p['paths'])}")
+    w = explain["writer"]
+    lines.append(f"writer: {w.get('writer', '?')} ({w.get('reason', '')})")
+    lines.append(f"redaction: {s['redact_patterns']} user pattern(s), "
+                 f"{explain['user_redactions']} match(es) redacted")
+    return "\n".join(lines)
+
+
 def resolve_publish_date(raw: str, *, today: date | None = None) -> date:
     today = today or datetime.now().astimezone().date()
     if raw in {"yesterday", ""}:
@@ -110,8 +165,13 @@ def resolve_publish_date(raw: str, *, today: date | None = None) -> date:
     return date.fromisoformat(raw)
 
 
-def collect_raw_sessions(cfg: DevlogConfig, since: datetime | None = None) -> list[RawSession]:
-    """Parse every configured source. `since` skips log files untouched since then."""
+def collect_raw_sessions(
+    cfg: DevlogConfig, since: datetime | None = None, stats: dict | None = None
+) -> list[RawSession]:
+    """Parse every configured source. `since` skips log files untouched since then.
+
+    `stats`, if given, gets {source: {"root", "found", "sessions"}} for --explain.
+    """
     import devlog.sources  # noqa: F401
     from devlog.sources.base import get_sources
 
@@ -119,9 +179,11 @@ def collect_raw_sessions(cfg: DevlogConfig, since: datetime | None = None) -> li
     raw: list[RawSession] = []
     for source in sources:
         root = cfg.root_for(source.name)
-        if not root.exists():
-            continue
-        raw.extend(source.iter_sessions(root, since=since))
+        found = root.exists()
+        sessions = source.iter_sessions(root, since=since) if found else []
+        if stats is not None:
+            stats[source.name] = {"root": str(root), "found": found, "sessions": len(sessions)}
+        raw.extend(sessions)
     return raw
 
 
@@ -130,9 +192,10 @@ def scan_start(target: date) -> datetime:
     return datetime.combine(target, time.min).astimezone() - SCAN_SLACK
 
 
-def collect_digests(cfg: DevlogConfig, target: date):
+def collect_digests(cfg: DevlogConfig, target: date, stats: dict | None = None):
     tz = datetime.now().astimezone().tzinfo
-    return slice_for_date(collect_raw_sessions(cfg, since=scan_start(target)), target, tz)
+    raw = collect_raw_sessions(cfg, since=scan_start(target), stats=stats)
+    return slice_for_date(raw, target, tz)
 
 
 def _ensure_managed_paths_clean(repo: Path, git_run: GitRunner) -> None:
@@ -265,17 +328,23 @@ def publish_day(
             _ensure_managed_paths_clean(repo, git_run)
 
     configure_redaction(cfg.redact_patterns)
-    digests = collect_digests(cfg, target)
+    source_stats: dict = {}
+    digests = collect_digests(cfg, target, stats=source_stats)
     resolver = ProjectResolver(cfg.project_aliases)
     name_projects(digests, resolver)
     commit_counts = count_commits([d.project_path for d in digests], resolver, target)
+    writer: dict = {}
     body = generate_post(
         digests,
         model=cfg.model,
         allow_external_api=cfg.allow_external_api,
         public_detail=cfg.public_detail,
         commit_counts=commit_counts,
+        report=writer,
+        **post_writer_args(cfg),
     )
+    explain = build_explain(cfg, target, source_stats, digests, resolver, commit_counts,
+                            writer, user_redaction_count())
 
     if not digests and not cfg.publish_empty_days:
         # Nothing public to say: keep the quiet day in the private vault (so
@@ -286,6 +355,7 @@ def publish_day(
             "reason": "no coding activity (publish_empty_days = false)",
             "publish_mode": cfg.publish_mode,
             "sessions": 0,
+            "explain": explain,
         }
         if dry_run:
             result["obsidian"] = planned_paths(cfg, target)
@@ -303,6 +373,7 @@ def publish_day(
             "sessions": len(digests),
             "publish_mode": cfg.publish_mode,
             "obsidian": planned_paths(cfg, target),
+            "explain": explain,
         }
 
     previous_body = post_path.read_text(encoding="utf-8") if post_path.exists() else None
@@ -337,6 +408,7 @@ def publish_day(
         "publish_mode": cfg.publish_mode,
         "sessions": len(digests),
         "obsidian": obsidian_result,
+        "explain": explain,
     }
 
     if cfg.publish_mode == "manual":
@@ -506,6 +578,11 @@ def cmd_publish(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Generate and print; do not write files or run git",
     )
+    parser.add_argument(
+        "--explain",
+        action="store_true",
+        help="Show which sources, names, settings, and writer shaped the post",
+    )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -542,9 +619,15 @@ def cmd_publish(argv: list[str] | None = None) -> int:
         print(f"Publish failed: {exc}")
         return 1
 
+    if args.explain:
+        if outcome.get("explain"):
+            print(format_explain(outcome["explain"]))
+            print("---")
+        else:
+            print(f"--explain: nothing was generated ({outcome.get('status')})")
     if args.dry_run and not args.confirm:
         if args.verbose:
-            details = {key: value for key, value in outcome.items() if key != "post"}
+            details = {k: v for k, v in outcome.items() if k not in {"post", "explain"}}
             print(details)
         obsidian = outcome.get("obsidian") or {}
         if obsidian.get("status") == "enabled":

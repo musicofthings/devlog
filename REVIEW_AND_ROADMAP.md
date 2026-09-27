@@ -165,11 +165,15 @@ linking it to anything else. Now every publish/backfill regenerates a linked gra
 
 All review findings and roadmap items are now shipped. See **Ideas beyond the roadmap** below.
 
-## Ideas beyond the roadmap
+## Ideas beyond the roadmap ✅ shipped
 
-- A post-writing mode on the local model (Ollama) as an alternative to the Claude API path.
-- Pull request links (not just commits) in day notes, from `gh`.
-- An `--explain` flag for `devlog publish` that shows which settings shaped the post.
+- ✅ **Local post writer:** `post_writer = "ollama"` writes the public post with a local model.
+  It gets the same `public_detail`-reduced digest as the Claude path, its output is clamped and
+  redacted, and it falls back to the template on any failure.
+- ✅ **Pull requests in day notes:** the PRs you opened or updated that day (via `gh`), with
+  their state, next to that day's commits.
+- ✅ **`devlog publish --explain`:** shows the sources scanned, how each project was named,
+  commit counts, the writer and why, and how many redaction patterns fired.
 
 ## Recommended Obsidian plugins
 

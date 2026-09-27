@@ -40,6 +40,8 @@ class Project:
     name: str
     root: Path | None = None
     repo_url: str | None = None
+    # How the name was chosen, for `devlog publish --explain`.
+    source: str = "folder name"
 
 
 def repo_web_url(remote_url: str) -> str | None:
@@ -117,6 +119,8 @@ class ProjectResolver:
     aliases: dict[str, str] = field(default_factory=dict)
     git_run: GitRunner = _default_git
     home: Path = field(default_factory=Path.home)
+    # GitHub CLI runner for PR lookups; None = use `gh` if it's installed.
+    gh_run: GitRunner | None = None
     _cache: dict[str, Project] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
@@ -139,26 +143,63 @@ class ProjectResolver:
         raw = project_path.replace("\\", "/").rstrip("/")
         by_path = self._aliases.get(raw.lower())
         if by_path:
-            return Project(name=by_path)
+            return Project(name=by_path, source="alias (path)")
         path = Path(project_path).expanduser()
         root = find_git_root(path) if path.exists() else None
         remote = read_remote_url(root) if root is not None else None
         if root is not None and root != self.home:
-            name = (_repo_name(remote) if remote else None) or root.name
+            remote_name = _repo_name(remote) if remote else None
+            name = remote_name or root.name
+            source = "git remote" if remote_name else "git root folder"
         elif path.exists() and path.resolve() == self.home.resolve():
             # Sessions in ~ are machine chores, and the folder name is your username.
-            name = HOME_PROJECT
+            name, source = HOME_PROJECT, "home folder"
         else:
-            name = redact_sensitive_text(basename(project_path))
+            name, source = redact_sensitive_text(basename(project_path)), "folder name"
         # Aliases may target the folder name or the derived repo name.
         folder = basename(project_path)
         aliased = self.alias(folder)
-        name = aliased if aliased != folder else self.alias(name)
+        if aliased != folder:
+            name, source = aliased, "alias (folder)"
+        elif self.alias(name) != name:
+            name, source = self.alias(name), f"alias (of {source})"
         return Project(
             name=name,
             root=root if root is not None and root != self.home else None,
             repo_url=repo_web_url(remote) if remote else None,
+            source=source,
         )
+
+    def pull_requests(self, project: Project, day: date) -> list[dict]:
+        """Your PRs in the project's GitHub repo that were opened or updated on `day`."""
+        if not project.repo_url:
+            return []
+        runner = self.gh_run
+        if runner is None:
+            if shutil.which("gh") is None:
+                return []
+            runner = _default_git
+        slug = project.repo_url.removeprefix("https://github.com/")
+        cmd = ["gh", "pr", "list", "--repo", slug, "--state", "all", "--author", "@me",
+               "--search", f"updated:{day.isoformat()}", "--limit", "20",
+               "--json", "number,title,url,state,isDraft"]
+        try:
+            out = runner(cmd, project.root or Path.cwd())
+        except (OSError, subprocess.SubprocessError):
+            return []
+        if out.returncode != 0:
+            return []
+        try:
+            rows = json.loads(out.stdout or "[]")
+        except json.JSONDecodeError:
+            return []
+        return [
+            {"number": r["number"], "title": redact_sensitive_text(str(r.get("title", ""))),
+             "url": r.get("url"),
+             "state": "draft" if r.get("isDraft") and r.get("state") == "OPEN"
+             else str(r.get("state", "")).lower()}
+            for r in rows if isinstance(r, dict) and isinstance(r.get("number"), int)
+        ]
 
     def commits(self, project: Project, day: date) -> list[dict]:
         """Your commits in the project's repo on `day` (local time), newest first."""
