@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
+from functools import lru_cache
 from pathlib import Path
 
 _SECRET_PATTERNS = (
@@ -20,9 +22,21 @@ _ASSIGNMENT_RE = re.compile(
 )
 
 
-def redact_sensitive_text(text: str) -> str:
-    """Best-effort removal of common credentials and the user's home path."""
+
+@lru_cache(maxsize=64)
+def _compile_user_pattern(pattern: str) -> re.Pattern[str]:
+    return re.compile(pattern)
+
+
+def redact_sensitive_text(text: str, extra_patterns: Iterable[str] = ()) -> str:
+    """Best-effort removal of common credentials and the user's home path.
+
+    `extra_patterns` are user regexes from config `redact_patterns` (MRNs,
+    sample IDs, ...); every match becomes [REDACTED].
+    """
     redacted = text
+    for pattern in extra_patterns:
+        redacted = _compile_user_pattern(pattern).sub("[REDACTED]", redacted)
     for pattern in _SECRET_PATTERNS:
         redacted = pattern.sub("[REDACTED_SECRET]", redacted)
     redacted = _BEARER_RE.sub(r"\1[REDACTED_SECRET]", redacted)

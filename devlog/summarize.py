@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterable
 
+from devlog.config import DEFAULT_PUBLIC_DETAIL, PUBLIC_DETAILS
 from devlog.digest import basename, build_raw_digest, total_active_minutes
 from devlog.models import SessionDigest
-from devlog.noise import headline_task
+from devlog.noise import headline_task, is_low_signal_prompt
 from devlog.privacy import redact_sensitive_text
+from devlog.worktypes import classify
 
 # Kept tight: every word here is billed as input on every call.
 SUMMARY_SYSTEM_PROMPT = (
@@ -66,38 +69,95 @@ def summarize_with_claude(
     return _clamp_sentences(text)
 
 
-def summarize_with_template(sessions: list[SessionDigest]) -> str:
+def _project_work_types(
+    sessions: list[SessionDigest], redact_patterns: tuple[str, ...]
+) -> list[tuple[str, list[str], float, dict[str, int]]]:
+    """(redacted name, work types, minutes, tool counts) per project, busiest first.
+
+    Work types come from `classify`, so the public post carries the kind of
+    work without any of the prompt text it was inferred from.
+    """
+    groups: dict[str, list[SessionDigest]] = {}
+    for s in sessions:
+        name = redact_sensitive_text(basename(s.project_path), redact_patterns)
+        groups.setdefault(name, []).append(s)
+    rows = []
+    for name, group in groups.items():
+        messages = [m for s in group for m in s.user_messages if not is_low_signal_prompt(m)]
+        tools: dict[str, int] = {}
+        for s in group:
+            for k, v in s.tool_calls.items():
+                tools[k] = tools.get(k, 0) + v
+        rows.append((name, classify(messages, tools), total_active_minutes(group), tools))
+    rows.sort(key=lambda r: (-r[2], r[0]))
+    return rows
+
+
+def _check_detail(detail: str) -> None:
+    if detail not in PUBLIC_DETAILS:
+        raise ValueError(
+            f"public_detail must be one of {', '.join(PUBLIC_DETAILS)}; got {detail!r}"
+        )
+
+
+def summarize_with_template(
+    sessions: list[SessionDigest],
+    detail: str = DEFAULT_PUBLIC_DETAIL,
+    redact_patterns: Iterable[str] = (),
+) -> str:
     """Deterministic fallback -- no API key required. Good enough to prove
-    the pipeline works end-to-end; the Claude-generated version reads better."""
+    the pipeline works end-to-end; the Claude-generated version reads better.
+
+    `detail` is config `public_detail`: "summary" (minutes and project count),
+    "projects" (names + work types, no prompt text), or "verbatim" (each
+    project's headline prompt).
+    """
+    _check_detail(detail)
     if not sessions:
         return "No coding activity logged today."
 
-    projects = sorted(
-        {redact_sensitive_text(basename(s.project_path)) for s in sessions}
-    )
+    patterns = tuple(redact_patterns)
+
+    def redact(text: str) -> str:
+        return redact_sensitive_text(text, patterns)
+
     total_minutes = total_active_minutes(sessions)
+    projects = sorted({redact(basename(s.project_path)) for s in sessions})
+
+    if detail == "summary":
+        # Deliberately not "across <names>": the vault's backfill parser
+        # would read the count as a project name.
+        return (
+            f"Today I logged {total_minutes:.0f} active min in {len(projects)} project(s). "
+            f"I recorded activity in {len(sessions)} coding session(s)."
+        )
+
     all_tools = {}
     for s in sessions:
         for k, v in s.tool_calls.items():
-            redacted_tool = redact_sensitive_text(k)
+            redacted_tool = redact(k)
             all_tools[redacted_tool] = all_tools.get(redacted_tool, 0) + v
     top_tools = sorted(all_tools.items(), key=lambda kv: -kv[1])[:3]
 
     parts = [f"Today I logged {total_minutes:.0f} active min across {', '.join(projects)}."]
     tasks: list[str] = []
-    seen_projects: set[str] = set()
-    for s in sessions:
-        project = redact_sensitive_text(basename(s.project_path))
-        first = headline_task(s.user_messages)
-        if first and project not in seen_projects:
-            task = redact_sensitive_text(first)
-            task = _EMOJI_RE.sub("", re.sub(r"\s+", " ", task)).strip()
-            task = _SENTENCE_SPLIT_RE.split(task, maxsplit=1)[0].rstrip(".!? ")
-            if task:
-                tasks.append(f"{project}: {task[:120].rstrip()}")
-                seen_projects.add(project)
-        if len(tasks) == 3:
-            break
+    if detail == "projects":
+        for name, work_types, _, _ in _project_work_types(sessions, patterns)[:3]:
+            tasks.append(f"{name} ({', '.join(work_types)})" if work_types else name)
+    else:
+        seen_projects: set[str] = set()
+        for s in sessions:
+            project = redact(basename(s.project_path))
+            first = headline_task(s.user_messages)
+            if first and project not in seen_projects:
+                task = redact(first)
+                task = _EMOJI_RE.sub("", re.sub(r"\s+", " ", task)).strip()
+                task = _SENTENCE_SPLIT_RE.split(task, maxsplit=1)[0].rstrip(".!? ")
+                if task:
+                    tasks.append(f"{project}: {task[:120].rstrip()}")
+                    seen_projects.add(project)
+            if len(tasks) == 3:
+                break
     if tasks:
         parts.append("I worked on " + "; ".join(tasks) + ".")
     else:
@@ -110,20 +170,57 @@ def summarize_with_template(sessions: list[SessionDigest]) -> str:
     return _clamp_sentences(" ".join(parts))
 
 
+def build_projects_digest(
+    sessions: list[SessionDigest], redact_patterns: Iterable[str] = ()
+) -> str:
+    """LLM input for public_detail="projects": names, minutes, work types, tools.
+
+    No prompts, files, or commands, so the model cannot echo them.
+    """
+    patterns = tuple(redact_patterns)
+    projects = _project_work_types(sessions, patterns)
+    lines = [
+        f"{total_active_minutes(sessions):.0f} min, {len(sessions)} session(s): "
+        + ", ".join(name for name, _, _, _ in projects)
+    ]
+    for name, work_types, minutes, tools in projects:
+        lines.append(f"\n[{name}, {minutes:.0f}m]")
+        if work_types:
+            lines.append("  Work: " + ", ".join(work_types))
+        if tools:
+            lines.append(
+                "  Tools: "
+                + ", ".join(f"{redact_sensitive_text(k, patterns)} x{v}" for k, v in tools.items())
+            )
+    return "\n".join(lines)
+
+
 def generate_post(
     sessions: list[SessionDigest],
     model: str | None = None,
     *,
     allow_external_api: bool = False,
+    public_detail: str = DEFAULT_PUBLIC_DETAIL,
+    redact_patterns: Iterable[str] = (),
 ) -> str:
-    # Empty day: never spend tokens on the API.
-    if not sessions:
-        return summarize_with_template(sessions)
+    _check_detail(public_detail)
+    patterns = tuple(redact_patterns)
+
+    def template() -> str:
+        return summarize_with_template(sessions, public_detail, patterns)
+
+    # Empty day: never spend tokens on the API. "summary" is two numbers; an
+    # LLM adds nothing but cost and a chance to embellish.
+    if not sessions or public_detail == "summary":
+        return template()
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
-    # Compact digest for the LLM path; full digest remains available for audits.
-    raw_digest = build_raw_digest(sessions, compact=True)
     if api_key and allow_external_api:
+        # Compact digest for the LLM path; full digest remains available for audits.
+        if public_detail == "verbatim":
+            raw_digest = build_raw_digest(sessions, compact=True, redact_patterns=patterns)
+        else:
+            raw_digest = build_projects_digest(sessions, patterns)
         try:
             post = summarize_with_claude(
                 raw_digest,
@@ -132,7 +229,7 @@ def generate_post(
             )
             if post:
                 # Model output can echo secrets from the digest; redact again.
-                return redact_sensitive_text(post)
+                return redact_sensitive_text(post, patterns)
         except Exception as e:  # network/auth issues -> don't crash the pipeline
             print(f"[warn] Claude summarization failed ({e}); falling back to template.")
-    return summarize_with_template(sessions)
+    return template()

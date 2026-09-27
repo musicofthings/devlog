@@ -49,7 +49,9 @@ python main.py --date today --dry-run --verbose --allow-external-api
 External API use is disabled by default even when a key is present. Enable it
 with `--allow-external-api` for a run or set `allow_external_api = true` in the
 config file. Transcript-derived text is redacted before it leaves the local
-pipeline. Writes `devlog-YYYY-MM-DD.md` unless `--dry-run` is set, and refuses
+pipeline, and `public_detail` (default `projects`) keeps prompt text out of
+posts entirely; see [What the public post reveals](#what-the-public-post-reveals).
+Writes `devlog-YYYY-MM-DD.md` unless `--dry-run` is set, and refuses
 to replace an existing post unless `--force` is supplied.
 
 ### CLI flags
@@ -112,6 +114,27 @@ devlog publish --confirm --date 2026-07-20   # push an already-written review-mo
 Publishing always runs locally — your session transcripts never leave this machine, so there's no "publish" button on the website. To publish on demand instead of waiting for the nightly schedule, either run `devlog publish` yourself, or double-click the `Publish Devlog Now.cmd` shortcut `devlog init` writes to your Desktop (opens a window, shows the result, waits for a keypress so you actually see it).
 
 With `publish_mode = review`, the nightly job writes `posts/` + `docs/log/` but does not push. After you edit the markdown, run `devlog publish --confirm --date YYYY-MM-DD` to commit and push (same recovery as auto if push fails).
+
+### What the public post reveals
+
+Two config settings decide how much of your day reaches the public post. Neither one changes the Obsidian vault, which always keeps full per-project detail (prompts, files, tools, work types).
+
+```toml
+public_detail = "projects"        # summary | projects | verbatim
+redact_patterns = ['\bMRN[:# ]?\d{6,10}\b', '\bS-\d{5}\b']
+```
+
+| `public_detail` | Public post contains | Example |
+|-----------------|----------------------|---------|
+| `summary` | Active minutes, project count, session count | `Today I logged 80 active min in 2 project(s). I recorded activity in 3 coding session(s).` |
+| `projects` (default) | Project names, work types from `devlog/worktypes.py` (bugfix, feature, data-analysis, ...), tool counts. **No prompt text.** | `Today I logged 80 active min across devlog, variantgpt. I worked on variantgpt (bugfix, testing); devlog (docs). Tools: Edit (6x), Bash (2x).` |
+| `verbatim` | Each project's first informative prompt, clipped to one sentence (the old behavior) | `... I worked on variantgpt: Fix the variant filter for chr7 ...` |
+
+When the Claude API is enabled (`allow_external_api = true`), the same setting limits what the model sees: `projects` sends only project names, minutes, work types, and tool counts, so the model has no prompt text to repeat. `verbatim` sends the compact digest (prompts, files, commands). `summary` never calls the API.
+
+`redact_patterns` is a list of Python regexes for identifiers that must never be published, such as MRNs, sample or accession IDs, or internal hostnames. Every match becomes `[REDACTED]`. The patterns are applied by `redact_sensitive_text` next to the built-in key and home-path redaction. They cover project names, prompts, tool names, the digest sent to the API, and the API's reply before it is written. Use TOML literal strings (single quotes) so backslashes survive, and remember that `\b` does not match between `_` and a letter (`test_S-12345` needs `S-\d{5}` without the leading `\b`). Invalid regexes are rejected when the config is loaded. `devlog init` asks for `public_detail` and keeps any existing `redact_patterns`.
+
+`redact_patterns` only applies to public output. The vault is private and keeps the text unredacted, apart from the built-in secret and home-path redaction.
 
 ### Offline Obsidian vault
 

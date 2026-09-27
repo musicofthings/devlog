@@ -10,6 +10,10 @@ from pathlib import Path
 
 PUBLISH_MODES = ("auto", "pr", "manual", "review")
 OBSIDIAN_ON_DELETE = ("preserve", "remove")
+# How much of a day's activity reaches the public post. The Obsidian vault is
+# private and always keeps full detail regardless of this setting.
+PUBLIC_DETAILS = ("summary", "projects", "verbatim")
+DEFAULT_PUBLIC_DETAIL = "projects"
 DEFAULT_SOURCES = [
     "claude_code",
     "codex",
@@ -101,6 +105,8 @@ class DevlogConfig:
     obsidian_folder: str = DEFAULT_OBSIDIAN_FOLDER
     obsidian_daily_folder: str = DEFAULT_OBSIDIAN_DAILY_FOLDER
     obsidian_on_delete: str = DEFAULT_OBSIDIAN_ON_DELETE
+    public_detail: str = DEFAULT_PUBLIC_DETAIL
+    redact_patterns: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.claude_root = _norm_path(self.claude_root)
@@ -149,6 +155,20 @@ class DevlogConfig:
                 f"obsidian_on_delete must be one of {', '.join(OBSIDIAN_ON_DELETE)}; "
                 f"got {self.obsidian_on_delete!r}"
             )
+        if self.public_detail not in PUBLIC_DETAILS:
+            raise ValueError(
+                f"public_detail must be one of {', '.join(PUBLIC_DETAILS)}; "
+                f"got {self.public_detail!r}"
+            )
+        if not isinstance(self.redact_patterns, list) or not all(
+            isinstance(p, str) and p for p in self.redact_patterns
+        ):
+            raise ValueError("redact_patterns must be a list of non-empty regex strings")
+        for pattern in self.redact_patterns:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"redact_patterns: invalid regex {pattern!r}: {exc}") from exc
 
 
 def load_config(path: Path | None = None) -> DevlogConfig | None:
@@ -183,6 +203,8 @@ def load_config(path: Path | None = None) -> DevlogConfig | None:
         obsidian_on_delete=str(
             data.get("obsidian_on_delete", DEFAULT_OBSIDIAN_ON_DELETE)
         ),
+        public_detail=str(data.get("public_detail", DEFAULT_PUBLIC_DETAIL)),
+        redact_patterns=data.get("redact_patterns", []),
     )
     cfg.validate()
     return cfg
@@ -198,6 +220,7 @@ def save_config(cfg: DevlogConfig, path: Path | None = None) -> Path:
     cfg_path = path or default_config_path()
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     sources = ", ".join(_toml_str(s) for s in cfg.sources)
+    redact_patterns = ", ".join(_toml_str(p) for p in cfg.redact_patterns)
     body = (
         f"sources = [{sources}]\n"
         f"claude_root = {_toml_str(cfg.claude_root)}\n"
@@ -220,6 +243,8 @@ def save_config(cfg: DevlogConfig, path: Path | None = None) -> Path:
         f"obsidian_folder = {_toml_str(cfg.obsidian_folder)}\n"
         f"obsidian_daily_folder = {_toml_str(cfg.obsidian_daily_folder)}\n"
         f"obsidian_on_delete = {_toml_str(cfg.obsidian_on_delete)}\n"
+        f"public_detail = {_toml_str(cfg.public_detail)}\n"
+        f"redact_patterns = [{redact_patterns}]\n"
     )
     cfg_path.write_text(body, encoding="utf-8")
     return cfg_path

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta, tzinfo
 
 from devlog.models import RawSession, SessionDigest, SessionEvent
@@ -131,12 +132,23 @@ def _clip(text: str, limit: int) -> str:
     return text[: max(0, limit - 1)].rstrip() + "…"
 
 
-def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) -> str:
+def build_raw_digest(
+    sessions: list[SessionDigest],
+    *,
+    compact: bool = False,
+    redact_patterns: Iterable[str] = (),
+) -> str:
     """Render a plain-text summary of a day's session digests.
 
     compact=True produces a shorter digest for LLM prompts (basenames, capped
     lists, clipped strings) to reduce input tokens without dropping the signal.
+    `redact_patterns` are the user's extra redaction regexes (config).
     """
+    patterns = tuple(redact_patterns)
+
+    def redact(text: str) -> str:
+        return redact_sensitive_text(text, patterns)
+
     if not sessions:
         return "No coding activity recorded today."
 
@@ -150,11 +162,11 @@ def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) ->
     total_minutes = total_active_minutes(sessions)
     if compact:
         projects = sorted(
-            {redact_sensitive_text(basename(s.project_path)) for s in sessions}
+            {redact(basename(s.project_path)) for s in sessions}
         )
         lines.append(f"{total_minutes:.0f} min, {len(sessions)} session(s): {', '.join(projects)}")
     else:
-        projects = sorted({redact_sensitive_text(s.project_path) for s in sessions})
+        projects = sorted({redact(s.project_path) for s in sessions})
         lines.append(
             f"Total active time: {total_minutes:.0f} minutes across {len(sessions)} session(s)."
         )
@@ -162,9 +174,9 @@ def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) ->
 
     for s in sessions:
         label = (
-            redact_sensitive_text(basename(s.project_path))
+            redact(basename(s.project_path))
             if compact
-            else redact_sensitive_text(s.project_path)
+            else redact(s.project_path)
         )
         if compact:
             lines.append(f"\n[{label}, {s.duration_minutes:.0f}m, src={s.source}]")
@@ -175,7 +187,7 @@ def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) ->
 
         if s.user_messages:
             tasks = s.user_messages[:max_tasks] if max_tasks is not None else s.user_messages
-            tasks = [redact_sensitive_text(task) for task in tasks]
+            tasks = [redact(task) for task in tasks]
             if task_len is not None:
                 tasks = [_clip(t, task_len) for t in tasks]
             task_prefix = "  Tasks: " if compact else "  Tasks requested: "
@@ -183,7 +195,7 @@ def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) ->
 
         if s.tool_calls:
             tool_summary = ", ".join(
-                f"{redact_sensitive_text(k)} x{v}" for k, v in s.tool_calls.items()
+                f"{redact(k)} x{v}" for k, v in s.tool_calls.items()
             )
             lines.append(f"  Tools: {tool_summary}" if compact else f"  Tools used: {tool_summary}")
 
@@ -193,13 +205,13 @@ def build_raw_digest(sessions: list[SessionDigest], *, compact: bool = False) ->
                 files = files[:max_files]
             if compact:
                 files = [basename(f) for f in files]
-            files = [redact_sensitive_text(file) for file in files]
+            files = [redact(file) for file in files]
             prefix = "  Files: " if compact else "  Files touched: "
             lines.append(prefix + ", ".join(files))
 
         if s.bash_commands:
             cmds = s.bash_commands[:max_cmds] if max_cmds is not None else s.bash_commands
-            cmds = [redact_sensitive_text(cmd) for cmd in cmds]
+            cmds = [redact(cmd) for cmd in cmds]
             if cmd_len is not None:
                 cmds = [_clip(c, cmd_len) for c in cmds]
             prefix = "  Cmds: " if compact else "  Commands run: "

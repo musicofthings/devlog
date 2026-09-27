@@ -19,7 +19,7 @@ def _sess() -> SessionDigest:
 
 
 def test_template_is_stable_and_factual():
-    text = summarize_with_template([_sess()])
+    text = summarize_with_template([_sess()], detail="verbatim")
     assert "variantgpt" in text
     assert "Refactor the VCF parser" in text
     assert "!" not in text
@@ -110,7 +110,7 @@ def test_clamp_sentences_keeps_decimals_intact():
 def test_template_handles_windows_paths():
     sess = _sess()
     sess.project_path = r"C:\Users\dev\code\variantgpt"
-    text = summarize_with_template([sess])
+    text = summarize_with_template([sess], detail="verbatim")
     # Project name, not the whole backslashed path
     assert "variantgpt: Refactor" in text
     assert r"C:\Users" not in text.replace("variantgpt", "")

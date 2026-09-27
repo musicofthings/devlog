@@ -77,7 +77,9 @@ def test_digest_drops_injected_messages():
 
 
 def test_template_prefers_informative_task():
-    post = summarize_with_template([_digest("vitreous", ["Try again", "fix the sidecar slider"])])
+    post = summarize_with_template(
+        [_digest("vitreous", ["Try again", "fix the sidecar slider"])], detail="verbatim"
+    )
     assert "vitreous: fix the sidecar slider" in post
     assert "Try again" not in post
 

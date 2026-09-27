@@ -129,6 +129,8 @@ def cmd_run(argv: list[str] | None = None) -> int:
         digests,
         model=cfg.model,
         allow_external_api=cfg.allow_external_api,
+        public_detail=cfg.public_detail,
+        redact_patterns=cfg.redact_patterns,
     )
     print("=== Daily post ===\n")
     print(post)
