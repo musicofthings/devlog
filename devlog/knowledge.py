@@ -15,6 +15,7 @@ from datetime import date
 from devlog.digest import basename, total_active_minutes
 from devlog.models import SessionDigest
 from devlog.noise import headline_task, is_injected_prompt, is_low_signal_prompt
+from devlog.pricing import merge_tokens
 from devlog.privacy import redact_sensitive_text
 from devlog.projects import Project, ProjectResolver
 from devlog.worktypes import WORK_TYPE_DESCRIPTIONS, classify
@@ -139,8 +140,10 @@ def build_day_meta(
                 "files": [f for f, _ in files.most_common(MAX_FILES)],
                 "tools": {k: v for k, v in tools.most_common(MAX_TOOLS)},
                 "tokens": _tokens(group),
+                "tokens_by_model": merge_tokens(*(d.tokens_by_model for d in group)),
                 "threads": _threads(group),
                 "repo_url": identities[slug].repo_url,
+                "root": str(identities[slug].root) if identities[slug].root else None,
                 "commits": resolver.commits(identities[slug], day),
             }
         )

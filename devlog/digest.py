@@ -72,6 +72,12 @@ def slice_for_date(
             digest.tokens_in += e.tokens_in
             digest.tokens_out += e.tokens_out
             digest.tokens_cache_read += e.tokens_cache_read
+            if e.tokens_in or e.tokens_out or e.tokens_cache_read:
+                bucket = digest.tokens_by_model.setdefault(
+                    e.model or "unknown", {"in": 0, "out": 0, "cache": 0})
+                bucket["in"] += e.tokens_in
+                bucket["out"] += e.tokens_out
+                bucket["cache"] += e.tokens_cache_read
             if e.threads:
                 # The latest recap of the day supersedes earlier ones.
                 digest.threads = list(e.threads)

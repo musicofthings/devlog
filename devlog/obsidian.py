@@ -14,8 +14,9 @@ from pathlib import Path
 from devlog.config import DevlogConfig, default_config_path, load_config
 from devlog.knowledge import build_day_meta, parse_post_meta
 from devlog.models import SessionDigest
+from devlog.pricing import price_table
 from devlog.privacy import configure_redaction
-from devlog.projects import ProjectResolver
+from devlog.projects import ProjectResolver, project_info
 from devlog.topics import TopicDetector
 from devlog.vault_graph import (
     existing_day_notes,
@@ -266,6 +267,22 @@ def _folder_root(cfg: DevlogConfig) -> Path:
     return root / folder if folder else root
 
 
+def _local_models(cfg: DevlogConfig, folder_root: Path) -> dict:
+    """Optional Ollama-backed embedder / retro writer, per config (local only)."""
+    from devlog.local_llm import CachedEmbedder, CachedRetro, OllamaClient
+
+    extras: dict = {}
+    if cfg.related_backend != "ollama" and not cfg.period_retros:
+        return extras
+    client = OllamaClient(cfg.ollama_url)
+    cache_dir = folder_root / ".devlog"
+    if cfg.related_backend == "ollama":
+        extras["embedder"] = CachedEmbedder(client, cfg.ollama_embed_model, cache_dir)
+    if cfg.period_retros:
+        extras["retro"] = CachedRetro(client, cfg.ollama_model, cache_dir)
+    return extras
+
+
 def refresh_vault(cfg: DevlogConfig, days: dict[str, dict] | None = None) -> dict:
     """Rebuild day notes, hubs, weeklies, and Home from the vault index."""
     root = vault_root(cfg)
@@ -289,6 +306,9 @@ def refresh_vault(cfg: DevlogConfig, days: dict[str, dict] | None = None) -> dic
             state["done_threads"],
             detector=TopicDetector(cfg.topics),
             canvas_hashes=state["canvas_hashes"],
+            project_info=project_info,
+            prices=price_table(cfg.model_prices),
+            **_local_models(cfg, folder_root),
         )
         save_index(
             folder_root,

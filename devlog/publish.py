@@ -550,7 +550,11 @@ def cmd_publish(argv: list[str] | None = None) -> int:
         if obsidian.get("status") == "enabled":
             print(f"obsidian archive: {obsidian.get('archive')}")
             print(f"obsidian daily: {obsidian.get('daily')}")
-        print(outcome.get("post", ""))
+        if str(outcome.get("status", "")).startswith("skipped"):
+            print(f"{outcome['status']}: {outcome.get('date', target.isoformat())}")
+            print(outcome.get("reason", ""))
+        else:
+            print(outcome.get("post", ""))
     elif args.verbose:
         print(outcome)
     else:

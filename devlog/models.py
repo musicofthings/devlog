@@ -16,6 +16,8 @@ class SessionEvent:
     tokens_cache_read: int = 0
     # Follow-ups ("Next steps: ...") from the assistant's end-of-turn recap.
     threads: list[str] | None = None
+    # Model that produced this event's tokens, when the log records it.
+    model: str | None = None
 
 
 @dataclass
@@ -46,6 +48,8 @@ class SessionDigest:
     threads: list[str] = field(default_factory=list)
     # Canonical name (git remote / alias / "home"), set at publish time.
     project_name: str | None = None
+    # {"model": {"in": n, "out": n, "cache": n}}; "unknown" when not logged.
+    tokens_by_model: dict[str, dict[str, int]] = field(default_factory=dict)
     active_intervals: list[tuple[datetime, datetime]] = field(default_factory=list, repr=False)
 
     @property

@@ -68,10 +68,12 @@ linking it to anything else. Now every publish/backfill regenerates a linked gra
 7. ✅ **Empty days clutter the feed and history.** 20 of 44 posts say "No coding activity
    logged today." Add `publish_empty_days = false`. The vault already treats these as "quiet
    days" and navigation skips them.
-8. **Template posts are low-signal** ("Tools: Read (104x), StrReplace (92x)"), and the
+8. ✅ **Template posts are low-signal** ("Tools: Read (104x), StrReplace (92x)"), and the
    LLM path is off by default for privacy. Options:
    - A local model backend (Ollama or llama.cpp) so summarization never leaves the machine.
    - A richer template: say what changed (files and commits), not how many tool calls ran.
+   - *Shipped:* posts now say "Shipped N commit(s)." and, at `projects` detail, list the stack
+     (catalog tools and libraries) instead of raw tool counts.
 9. ✅ **Token usage is collected but never surfaced.** `SessionDigest.tokens_in/out/cache_read`
    are summed per session and then thrown away. Showing them in day notes and project hubs is
    cheap (cost per project per week).
@@ -99,17 +101,18 @@ linking it to anything else. Now every publish/backfill regenerates a linked gra
 
 - ✅ **Project identity:** git root + `origin` remote (worktrees resolve to their main repo),
   `home` for sessions started in `~`, and `[project_aliases]` (#6). Project hubs link the
-  GitHub repo. *Still open:* README summary and open PRs on the hub; using the same identity
-  for public posts.
+  GitHub repo, a README summary, and open PRs (via `gh`, when installed). Public posts use the
+  same identity.
 - ✅ **Commits in day notes:** your commits per project that day (filtered by `user.email`),
   linked to GitHub, with counts rolled up to hubs, weeks, and months.
 - ✅ **Open threads:** follow-ups from each turn's recap (Claude Code, Codex, Cursor) become
   checkboxes. Ticks persist across regeneration and sync between the day note and the hub.
-  *Still open:* Copilot, Grok, and OpenCode parsers.
+  Copilot, Grok, and OpenCode parsers capture them too.
 - ✅ **Obsidian Bases:** `DevLog/DevLog.base` (Days / Projects / Weeks), embedded on Home.
-- ✅ **Monthly rollups** (quarterly still open).
-- ✅ **Token tracking** per project, day, week, and month (#9). *Still open:* cost, which needs
-  the model per session; most parsers don't record it yet.
+- ✅ **Monthly and quarterly rollups.**
+- ✅ **Token and cost tracking** per project, day, week, and month (#9). Claude Code and Codex
+  record the model per turn; cost uses Anthropic's published rates by default, and other models
+  are priced only if you add them to `[model_prices]`.
 
 ### Phase 3: second-brain features ✅ shipped
 
@@ -120,13 +123,14 @@ linking it to anything else. Now every publish/backfill regenerates a linked gra
   overwritten. Topics are recomputed on every refresh, so a new custom topic applies to all of
   your history after `--reindex`.
 - ✅ **Related days:** local TF-IDF similarity in pure Python (no model, no network). Each link
-  shows the terms the two days share. *Still open:* an optional neural-embedding backend
-  (Ollama or sentence-transformers) that is off by default.
+  shows the terms the two days share. Optional local embeddings via Ollama
+  (`related_backend = "ollama"`), cached, with TF-IDF as the fallback.
 - ✅ **Review and streaks:**
   - Weekly and monthly notes get a *Review* section: time and active days against the previous
     period, new projects, first-time topics, and threads raised.
   - Home shows the current and longest streak, plus a Heatmap Calendar block.
-  - *Still open:* an optional retro written by a local LLM.
+  - Optional retro written by a local model (Ollama, `period_retros = true`), cached until
+    the period's facts change.
 - ✅ **Per-project JSON Canvas** (`DevLog/Canvas/<project>.canvas`): the hub, then the last 12
   active days, then the top topics. It is regenerated until you rearrange it. After that it's
   yours; delete it to get a fresh one.
@@ -159,9 +163,13 @@ linking it to anything else. Now every publish/backfill regenerates a linked gra
     lines with byte-identical output.
   - The slash commands are generated from `commands/*.md` by `python -m devlog.commands_sync`.
 
-*Still open:* the richer, less template-like public post (#8); an optional neural backend for
-related days; an optional local-LLM weekly retro; open threads for the Copilot, Grok, and
-OpenCode parsers.
+All review findings and roadmap items are now shipped. See **Ideas beyond the roadmap** below.
+
+## Ideas beyond the roadmap
+
+- A post-writing mode on the local model (Ollama) as an alternative to the Claude API path.
+- Pull request links (not just commits) in day notes, from `gh`.
+- An `--explain` flag for `devlog publish` that shows which settings shaped the post.
 
 ## Recommended Obsidian plugins
 

@@ -123,8 +123,10 @@ redact_patterns = ['MRN\d{6}', 'S-\d{4}-\d+', '(?i)acme corp']
 publish_empty_days = false
 ```
 
-- `public_detail = "projects"` (default): project names plus generic work types, e.g. *"Work: code-review and git-ops on vitreous."* No prompt text, file names, or commands.
-- `public_detail = "summary"`: minutes and a project count only.
+- `public_detail = "projects"` (default): project names plus generic work types, how many commits you shipped, and a "Stack" line of recognized tools and libraries from the built-in catalog (never your custom topics). For example: *"Work: code-review and git-ops on vitreous. Shipped 3 commit(s). Stack: Python, scanpy."* No prompt text, file names, commands, or commit messages.
+
+Project names in posts come from the git remote and `project_aliases`, the same as in the vault. Sessions started in your home folder appear as `home`, not your username.
+- `public_detail = "summary"`: minutes, a project count, work types, and the commit count only.
 - `public_detail = "verbatim"`: the previous behavior, which quotes the first prompt per project.
 
 The same level applies to the digest sent to the LLM when `allow_external_api` is on.
@@ -189,6 +191,25 @@ Work types are classified locally and deterministically from your prompts (keywo
 ```
 
 Topics are recomputed on each refresh, so `devlog obsidian --reindex` applies a new topic to your whole history. Each day note gets **Related days** (local TF-IDF similarity — no model, no network — with the shared terms shown). Weekly and monthly notes get a **Review** section (time vs. the previous period, new projects, first-time topics, threads raised), and Home shows your current/longest **streak** and a Heatmap Calendar block.
+
+**Cost, quarters, and repo context.** Claude Code and Codex logs record which model produced each turn, so day notes, hubs, rollups, and Home show an *API-equivalent* cost estimate (`cost_usd` is also a property, for Bases/Dataview). Built-in rates cover current Claude models. Anything else is left "unpriced" until you add it:
+
+```toml
+[model_prices]                 # USD per million tokens: [input, output, cache_read]
+"gpt-5-codex" = [1.25, 10.0, 0.125]
+```
+
+Quarterly rollups (`DevLog/Quarterly/`) sit above the monthly ones. Project hubs show the first paragraph of the repo README and, if the GitHub CLI (`gh`) is installed and logged in, the open pull requests.
+
+**Optional local models.** Two features can use an [Ollama](https://ollama.com) server on your own machine. Transcript text never goes to an external API, results are cached in `DevLog/.devlog/`, and if Ollama isn't running devlog falls back silently:
+
+```toml
+related_backend = "ollama"              # semantic "Related days" via local embeddings
+ollama_embed_model = "nomic-embed-text"
+period_retros = true                    # a short retro in weekly and monthly notes
+ollama_model = "llama3.2"
+ollama_url = "http://localhost:11434"
+```
 
 **Agent memory (MCP).** `devlog mcp` serves the vault index to coding agents over stdio (read-only), so a new session can recall prior work before starting:
 

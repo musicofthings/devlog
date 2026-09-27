@@ -31,6 +31,7 @@ DEFAULT_PUBLISH_MODE = "manual"
 DEFAULT_MODEL = "claude-sonnet-5"
 PUBLIC_DETAIL_LEVELS = ("summary", "projects", "verbatim")
 DEFAULT_PUBLIC_DETAIL = "projects"
+RELATED_BACKENDS = ("tfidf", "ollama")
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -116,6 +117,15 @@ class DevlogConfig:
     redact_patterns: list[str] = field(default_factory=list)
     # False: days without activity are mirrored to the vault but not published.
     publish_empty_days: bool = False
+    # USD per million tokens [input, output, cache_read]; adds to/overrides the
+    # built-in Claude table (see devlog/pricing.py). Vault-only cost estimates.
+    model_prices: dict[str, list[float]] = field(default_factory=dict)
+    # Optional local models (Ollama on this machine; see devlog/local_llm.py).
+    related_backend: str = "tfidf"  # tfidf | ollama
+    period_retros: bool = False
+    ollama_url: str = "http://localhost:11434"
+    ollama_embed_model: str = "nomic-embed-text"
+    ollama_model: str = "llama3.2"
 
     def __post_init__(self) -> None:
         self.claude_root = _norm_path(self.claude_root)
@@ -187,6 +197,22 @@ class DevlogConfig:
                 re.compile(pattern)
             except (re.error, TypeError) as exc:
                 raise ValueError(f"redact_patterns: invalid regex {pattern!r}: {exc}") from exc
+        if self.related_backend not in RELATED_BACKENDS:
+            raise ValueError(
+                f"related_backend must be one of {', '.join(RELATED_BACKENDS)}; "
+                f"got {self.related_backend!r}"
+            )
+        if not isinstance(self.period_retros, bool):
+            raise ValueError("period_retros must be true or false")
+        if not isinstance(self.model_prices, dict) or not all(
+            isinstance(v, list) and len(v) == 3
+            and all(isinstance(x, (int, float)) and x >= 0 for x in v)
+            for v in self.model_prices.values()
+        ):
+            raise ValueError(
+                'model_prices must be a table of "model" = [input, output, cache_read] '
+                "(USD per million tokens)"
+            )
         if self.obsidian_on_delete not in OBSIDIAN_ON_DELETE:
             raise ValueError(
                 f"obsidian_on_delete must be one of {', '.join(OBSIDIAN_ON_DELETE)}; "
