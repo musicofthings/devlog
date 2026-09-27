@@ -46,6 +46,7 @@ safer automation, and devlog learned about pipelines, papers, and slides.
   `commands/*.md`.
 
 ### Changed
+- Licensed under MIT (see `LICENSE`).
 - Package renamed to `daily-devlog` for PyPI (the command is still `devlog`);
   the repo-only `evals` package and `devlog-evals` script are no longer installed.
 - Parsers read only log files modified since the target day (incremental scans).

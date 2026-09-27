@@ -428,3 +428,7 @@ All five surfaces are generated from one source per command in `commands/`. Edit
 | **Codex CLI** | `.agents/skills/devlog-*/SKILL.md` | None — auto-discovered from the repo. |
 
 Codex CLI 0.117+ removed custom prompts (`~/.codex/prompts` / `/prompts:…`). The in-repo `.codex/prompts/*.md` files are kept only as legacy references; live Codex support is the `.agents/skills/` copies. If Codex warns that the skills context budget was exceeded, invoke a skill by path (e.g. “use `.agents/skills/devlog-status/SKILL.md`”) or trim unused global skills under `~/.agents/skills`.
+
+## License
+
+[MIT](LICENSE) © 2026 Shibichakravarthy Kannan
