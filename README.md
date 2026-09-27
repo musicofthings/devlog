@@ -1,24 +1,36 @@
 # Daily Dev Log
 
-Turns local AI coding session history into one short, factual, first-person
-"build log" post per day, published to a GitHub Pages site. Reads Claude
-Code, Codex, Cursor, Grok, Copilot CLI, and other local agent logs and merges
-them into one post.
+Turns your local AI coding session history (Claude Code, Codex, Cursor, Grok, Copilot CLI, OpenCode, and more) into two things:
 
-**Repo:** https://github.com/musicofthings/devlog
+1. **A public build log.** One short, factual, first-person post per day, published to GitHub Pages. You control how much of your prompts it reveals.
+2. **A private second brain in Obsidian.** Every day is linked to its projects, kinds of work, topics, commits, open follow-ups, weeks, months, and quarters. Coding agents can query it through an MCP server.
+
+Transcripts never leave your machine unless you explicitly allow the (redacted) Claude API summarizer.
+
+**Repo:** https://github.com/musicofthings/devlog · **Site:** https://musicofthings.github.io/devlog/ · **Design notes and roadmap:** [`REVIEW_AND_ROADMAP.md`](REVIEW_AND_ROADMAP.md)
+
+## What you get
+
+| | |
+|---|---|
+| **Nightly public post** | Minutes, projects, the kinds of work, commits shipped, and your stack. Three privacy levels plus your own redaction regexes (MRNs, sample IDs, …); quiet days aren't published. |
+| **Obsidian knowledge graph** | Day notes linked to project, work-type, and topic hubs; weekly, monthly, and quarterly rollups; a Home dashboard with streaks and a heatmap; Bases views and per-project canvases. |
+| **What happened, not just how long** | Your commits that day, open threads captured from agent recaps (tick them off in Obsidian), related days, repo README and open PRs on each project hub. |
+| **Tokens and cost** | Tokens per model, and an API-equivalent cost estimate per day, project, and period. |
+| **Local-first extras** | Optional [Ollama](https://ollama.com) models for semantic related days, period retros, and writing the post itself. None of it leaves your machine. |
+| **Agent memory** | `devlog mcp` lets Claude Code or Codex ask "what did I do on this project, and what's still open?" |
+| **Safe automation** | A nightly Windows scheduled task; `review`/`pr`/`manual` publish modes; rollback that never discards your uncommitted work; hide or delete a post from the live site. |
 
 ## Install
 
 Requires Python 3.11+.
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev]"          # add ,mcp for the agent-memory server: ".[dev,mcp]"
+devlog init                      # config, Obsidian vault detection, nightly schedule
 ```
 
-This installs a `devlog` console command (`devlog run`, `devlog init`,
-`devlog publish`, `devlog delete`, `devlog obsidian`) — everything below works with either
-`devlog` or `python main.py` interchangeably; `python main.py` needs no
-install step.
+This installs a `devlog` command: `devlog run` (the default), `init`, `publish`, `hide`, `unhide`, `delete`, `obsidian`, and `mcp`. Everything below also works as `python main.py …`, which needs no install step.
 
 ## Use
 
@@ -124,10 +136,10 @@ publish_empty_days = false
 ```
 
 - `public_detail = "projects"` (default): project names plus generic work types, how many commits you shipped, and a "Stack" line of recognized tools and libraries from the built-in catalog (never your custom topics). For example: *"Work: code-review and git-ops on vitreous. Shipped 3 commit(s). Stack: Python, scanpy."* No prompt text, file names, commands, or commit messages.
-
-Project names in posts come from the git remote and `project_aliases`, the same as in the vault. Sessions started in your home folder appear as `home`, not your username.
 - `public_detail = "summary"`: minutes, a project count, work types, and the commit count only.
 - `public_detail = "verbatim"`: the previous behavior, which quotes the first prompt per project.
+
+Project names in posts come from the git remote and `project_aliases`, the same as in the vault. Sessions started in your home folder appear as `home`, not your username.
 
 The same level applies to the digest sent to the LLM when `allow_external_api` is on.
 
@@ -160,12 +172,13 @@ Layout after publish — the vault is a linked knowledge graph, not a pile of di
 
 | Note | What it holds | Links to |
 |------|---------------|----------|
-| `DevLog/YYYY-MM-DD.md` | Day note: the post, then per-project detail: what you asked for, **your commits that day** (linked to GitHub), files, tools, **tokens**, and **open threads** as checkboxes | its projects, work types, week, month, prev/next active day, Home |
-| `DevLog/Projects/<project>.md` | Project hub: repo link, **open threads**, active days, minutes, commits, tokens, work mix, frequently touched files, timeline table | every day the project was worked on |
+| `DevLog/YYYY-MM-DD.md` | Day note: the post, topics, then per-project detail: what you asked for, **your commits that day** (linked to GitHub), files, tools, **tokens and cost**, and **open threads** as checkboxes; ends with **related days** | its projects, work types, topics, week, month, prev/next active day, Home |
+| `DevLog/Projects/<project>.md` | Project hub: repo link, **README summary**, **open pull requests**, **open threads**, active days, minutes, commits, tokens and cost, work mix, topics, frequently touched files, canvas link, timeline table | every day the project was worked on |
 | `DevLog/Work/<type>.md` | Work-type hub (`code-review`, `planning`, `bugfix`, `feature`, `refactor`, `testing`, `docs`, `ui-ux`, `git-ops`, `devops`, `data-analysis`, `learning`, `research`) | every day and project with that kind of work |
 | `DevLog/Weekly/YYYY-Www.md` | Weekly rollup: minutes and commits per project, tokens, work mix, quiet days | its days, projects, month(s), prev/next week |
-| `DevLog/Monthly/YYYY-MM.md` | Monthly rollup, same shape as weekly | its days, weeks, projects, prev/next month |
-| `DevLog/DevLog Home.md` | Dashboard: projects (with open-thread counts), work types, recent days, months, weeks, an embedded Bases view, optional Dataview queries | everything |
+| `DevLog/Monthly/YYYY-MM.md` | Monthly rollup, same shape as weekly, plus its weeks | its days, weeks, quarter, projects, prev/next month |
+| `DevLog/Quarterly/YYYY-Qn.md` | Quarterly rollup, same shape, plus its months | its days, months, projects, prev/next quarter |
+| `DevLog/DevLog Home.md` | Dashboard: totals, streaks, API-equivalent cost, projects (with open-thread counts), work types, topics, recent days, quarters, months, weeks, an embedded Bases view, a Heatmap Calendar block, optional Dataview queries | everything |
 | `DevLog/Topics/<topic>.md` | Topic hub (scanpy, Nextflow, GATK, variant calling, FHIR, PyTorch, … or your own): days, projects, co-occurring topics, and a **Literature & notes** area that's never overwritten — put Zotero citekeys here | every day/project where the topic came up |
 | `DevLog/Canvas/<project>.canvas` | JSON Canvas: project hub → last 12 active days → top topics. Regenerated until you rearrange it; then it's yours (delete to regenerate) | hub, days, topics |
 | `DevLog/DevLog.base` | Obsidian **Bases** views (Days, Projects, Weeks) over the note properties — no community plugin needed. Written once; edit it freely | — |
@@ -173,14 +186,14 @@ Layout after publish — the vault is a linked knowledge graph, not a pile of di
 
 Obsidian features used:
 
-- **Properties** (`type`, `date`, `week`, `active_minutes`, `projects`, `work_types`, `sources`) — links inside properties count in the graph and backlinks, and work with Dataview/Bases.
-- **Nested tags** — `#devlog/project/<name>`, `#devlog/work/<type>`, `#devlog/project-hub`, `#devlog/work-hub`, `#devlog/week` — for tag-pane browsing and graph filters.
+- **Properties** (`type`, `date`, `week`, `month`, `active_minutes`, `projects`, `work_types`, `topics`, `commits`, `open_threads`, `cost_usd`, `sources`). Links inside properties count in the graph and backlinks, and work with Dataview and Bases.
+- **Nested tags** (`#devlog/project/<name>`, `#devlog/work/<type>`, `#devlog/topic/<topic>`, `#devlog/project-hub`, `#devlog/work-hub`, `#devlog/topic-hub`, `#devlog/week`) for tag-pane browsing and graph filters.
 - **Backlinks / graph view** — hubs are real notes, so "every day I touched vitreous" is the hub's backlinks. New vaults created by `devlog init` get graph color groups for hubs.
 - **Callouts, embeds, tables** — hubs render without plugins; Dataview queries on Home are optional (collapsed callout).
 
 Work types are classified locally and deterministically from your prompts (keyword rules in `devlog/worktypes.py`, with a tool-mix fallback) — nothing is sent anywhere. Project names are case-folded (`Gurukul` and `gurukul` share one hub; the other spelling becomes an alias). Harness-injected text (MCP tool manifests, AGENTS.md bootstraps, skill preambles) is filtered out of both posts and notes.
 
-**Open threads.** When an agent ends a turn with a "Next steps" / "Follow-ups" / "TODO" list (or `- [ ]` items), those items are captured locally from the Claude Code, Codex, and Cursor transcripts and shown as checkboxes on the day note and as an *Open threads* list on the project hub. Tick one in either place (plain checkbox or the Tasks plugin) and it stays ticked across regenerations and disappears from the hub; untick it in the day note to reopen it. Commits come from `git log` in each project's repo, limited to your `user.email`. Assistant text, commits, and tokens only ever go to the vault, never to the public post.
+**Open threads.** When an agent ends a turn with a "Next steps" / "Follow-ups" / "TODO" list (or `- [ ]` items), those items are captured locally from the Claude Code, Codex, Cursor, Copilot, Grok, and OpenCode transcripts and shown as checkboxes on the day note and as an *Open threads* list on the project hub. Tick one in either place (plain checkbox or the Tasks plugin) and it stays ticked across regenerations and disappears from the hub; untick it in the day note to reopen it. Commits come from `git log` in each project's repo, limited to your `user.email`. Assistant text, commits, and tokens only ever go to the vault, never to the public post.
 
 **Topics, related days, reviews.** Topics are detected locally from what you asked, commit subjects, open threads, and file names, using a built-in catalog (bioinformatics, workflow, clinical, data/ML, languages, frameworks) plus your own:
 
@@ -190,7 +203,7 @@ Work types are classified locally and deterministically from your prompts (keywo
 "Variant interpretation" = ["acmg", "clinvar", "pathogenic"]
 ```
 
-Topics are recomputed on each refresh, so `devlog obsidian --reindex` applies a new topic to your whole history. Each day note gets **Related days** (local TF-IDF similarity — no model, no network — with the shared terms shown). Weekly and monthly notes get a **Review** section (time vs. the previous period, new projects, first-time topics, threads raised), and Home shows your current/longest **streak** and a Heatmap Calendar block.
+Topics are recomputed on each refresh, so `devlog obsidian --reindex` applies a new topic to your whole history. Each day note gets **Related days** (local TF-IDF similarity, with no model and no network, showing the shared terms). Weekly, monthly, and quarterly notes get a **Review** section (time vs. the previous period, new projects, first-time topics, threads raised), and Home shows your current/longest **streak** and a Heatmap Calendar block.
 
 **Cost, quarters, and repo context.** Claude Code and Codex logs record which model produced each turn, so day notes, hubs, rollups, and Home show an *API-equivalent* cost estimate (`cost_usd` is also a property, for Bases/Dataview). Built-in rates cover current Claude models. Anything else is left "unpriced" until you add it:
 
@@ -232,6 +245,8 @@ devlog obsidian --backfill --rescan   # re-read local session logs for full per-
 devlog obsidian --date 2026-08-13
 devlog obsidian --reindex             # regenerate hubs / weeklies / Home from the index only
 ```
+
+Recommended Obsidian plugins: none are required. **Bases** (core) or **Dataview** for live tables; **Calendar** + **Periodic Notes** for the Daily/Weekly layout; **Tasks** for open threads; **Heatmap Calendar** for the Home heatmap; **Zotero Integration** for citekeys in topic hubs.
 
 Hard delete leaves vault notes alone unless `obsidian_on_delete = remove` or you pass `--also-obsidian`. Soft-hide never touches Obsidian. A missing vault path warns and does not fail GitHub publish.
 
