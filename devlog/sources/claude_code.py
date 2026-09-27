@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from devlog.models import RawSession, SessionEvent
-from devlog.sources.base import register
+from devlog.sources.base import modified_since, register
 from devlog.threads import TurnRecap
 
 
@@ -229,7 +229,7 @@ def parse_session_file(path: Path) -> RawSession | None:
 class ClaudeCodeParser:
     name = "claude_code"
 
-    def iter_sessions(self, root: Path) -> list[RawSession]:
+    def iter_sessions(self, root: Path, since: datetime | None = None) -> list[RawSession]:
         root = Path(root)
         projects_dir = root / "projects" if (root / "projects").exists() else root
 
@@ -241,6 +241,8 @@ class ClaudeCodeParser:
             if not project_folder.is_dir():
                 continue
             for session_file in sorted(project_folder.glob("*.jsonl")):
+                if not modified_since(session_file, since):
+                    continue
                 try:
                     session = parse_session_file(session_file)
                 except (OSError, UnicodeError):

@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from devlog.models import RawSession, SessionEvent
-from devlog.sources.base import register
+from devlog.sources.base import modified_since, register
 
 
 def _parse_timestamp(ts: object) -> datetime | None:
@@ -97,7 +97,7 @@ def parse_session_file(path: Path, *, source: str = "vitreous") -> RawSession | 
 class VitreousParser:
     name = "vitreous"
 
-    def iter_sessions(self, root: Path) -> list[RawSession]:
+    def iter_sessions(self, root: Path, since: datetime | None = None) -> list[RawSession]:
         root = Path(root)
         if not root.exists():
             return []
@@ -109,6 +109,8 @@ class VitreousParser:
             if "nvidia-skills" in sdir.parts:
                 continue
             for path in sorted(sdir.rglob("*.jsonl")):
+                if not modified_since(path, since):
+                    continue
                 if "nvidia-skills" in path.parts:
                     continue
                 try:

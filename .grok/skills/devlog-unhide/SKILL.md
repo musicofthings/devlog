@@ -1,6 +1,7 @@
 ---
 name: devlog-unhide
 description: Unhide a soft-hidden devlog post back onto the public feed. Use when the user asks to unhide a daily-dev-log post or run /devlog-unhide.
+argument-hint: "<YYYY-MM-DD>"
 user-invocable: true
 ---
 

@@ -24,6 +24,9 @@ devlog-evals = "evals.run:main"
 [tool.setuptools.packages.find]
 include = ["devlog*", "evals*"]
 
+[tool.setuptools.package-data]
+devlog = ["templates/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

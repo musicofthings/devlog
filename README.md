@@ -113,6 +113,26 @@ Publishing always runs locally — your session transcripts never leave this mac
 
 With `publish_mode = review`, the nightly job writes `posts/` + `docs/log/` but does not push. After you edit the markdown, run `devlog publish --confirm --date YYYY-MM-DD` to commit and push (same recovery as auto if push fails).
 
+### Privacy: what reaches the public site
+
+Posts are public, and your prompts can contain things that shouldn't be (patient or sample identifiers, client names, unpublished results). Three settings control this. The private Obsidian vault always keeps full detail.
+
+```toml
+public_detail = "projects"      # summary | projects | verbatim
+redact_patterns = ['MRN\d{6}', 'S-\d{4}-\d+', '(?i)acme corp']
+publish_empty_days = false
+```
+
+- `public_detail = "projects"` (default): project names plus generic work types, e.g. *"Work: code-review and git-ops on vitreous."* No prompt text, file names, or commands.
+- `public_detail = "summary"`: minutes and a project count only.
+- `public_detail = "verbatim"`: the previous behavior, which quotes the first prompt per project.
+
+The same level applies to the digest sent to the LLM when `allow_external_api` is on.
+
+`redact_patterns` are your own regexes. Matches become `[REDACTED]` everywhere redaction runs: posts, the LLM digest, and vault notes. Use single-quoted TOML strings so backslashes stay literal.
+
+With `publish_empty_days = false`, a day with no activity is not committed (`skipped_empty`), but it is still written to the vault so streaks and weekly notes stay accurate.
+
 ### Offline Obsidian vault
 
 GitHub Pages stays the public site. Each successful local `posts/` write also mirrors into a private Obsidian vault (archive note + Daily Note embed) when `obsidian_vault` is set. Vault notes are **never** git-managed and are **preserved by default** on hide/delete.
@@ -266,6 +286,8 @@ The feed page shows a small status line — "Last published: 2026-08-06 (2026-08
 ## Slash commands for AI coding assistants
 
 If you use Claude Code, Codex, Cursor, or Grok Build to work in a repo with devlog installed, you can drive it with `/devlog-init`, `/devlog-publish`, `/devlog-delete`, `/devlog-hide`, `/devlog-unhide`, `/devlog-status`, and `/devlog-obsidian` instead of typing the CLI commands yourself. Each command just tells the assistant which `devlog` commands to run and how to handle the output (e.g. `/devlog-delete` and `/devlog-hide` always confirm with you before running the real, non-dry-run action).
+
+All five surfaces are generated from one source per command in `commands/`. Edit `commands/<name>.md`, then run `python -m devlog.commands_sync`. CI fails if the generated files are stale (`--check`).
 
 | Tool | Where the commands live | Setup needed |
 |------|--------------------------|--------------|

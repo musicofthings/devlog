@@ -136,7 +136,8 @@ def _open_readonly(db: Path) -> sqlite3.Connection | None:
 class WarpParser:
     name = "warp"
 
-    def iter_sessions(self, root: Path) -> list[RawSession]:
+    def iter_sessions(self, root: Path, since: datetime | None = None) -> list[RawSession]:
+        # One SQLite database: nothing to skip by mtime; `since` is accepted for the protocol.
         root = Path(root)
         db = _find_db(root)
         if db is None:

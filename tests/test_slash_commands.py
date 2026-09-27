@@ -120,3 +120,12 @@ def test_legacy_codex_prompts_still_present_alongside_agents_skills():
     for name in COMMANDS:
         assert _command_path("codex_prompts_legacy", name).is_file()
         assert _command_path("codex_skills", name).is_file()
+
+
+def test_generated_surfaces_match_commands_sources():
+    """Every surface is generated from commands/*.md; edit the source, then run
+    `python -m devlog.commands_sync`."""
+    from devlog.commands_sync import SOURCE_DIR, stale
+
+    assert sorted(p.stem for p in SOURCE_DIR.glob("*.md")) == sorted(COMMANDS)
+    assert stale() == []

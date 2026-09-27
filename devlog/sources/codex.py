@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from devlog.models import RawSession, SessionEvent
-from devlog.sources.base import register
+from devlog.sources.base import modified_since, register
 from devlog.threads import TurnRecap
 
 _SKIP_USER_PREFIXES = (
@@ -269,7 +269,7 @@ def parse_rollout_file(path: Path) -> RawSession | None:
 class CodexParser:
     name = "codex"
 
-    def iter_sessions(self, root: Path) -> list[RawSession]:
+    def iter_sessions(self, root: Path, since: datetime | None = None) -> list[RawSession]:
         root = Path(root)
         sessions_dir = root / "sessions" if (root / "sessions").exists() else root
         if not sessions_dir.exists():
@@ -277,6 +277,8 @@ class CodexParser:
 
         sessions: list[RawSession] = []
         for path in sorted(sessions_dir.rglob("rollout-*.jsonl")):
+            if not modified_since(path, since):
+                continue
             try:
                 session = parse_rollout_file(path)
             except (OSError, UnicodeError):

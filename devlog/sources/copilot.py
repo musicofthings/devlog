@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from devlog.models import RawSession, SessionEvent
-from devlog.sources.base import register
+from devlog.sources.base import modified_since, register
 
 _SKIP_USER_SOURCES = {"system"}
 _CHROME_PREFIXES = (
@@ -175,7 +175,7 @@ def parse_events_file(path: Path) -> RawSession | None:
 class CopilotParser:
     name = "copilot"
 
-    def iter_sessions(self, root: Path) -> list[RawSession]:
+    def iter_sessions(self, root: Path, since: datetime | None = None) -> list[RawSession]:
         root = Path(root)
         state_dir = root / "session-state" if (root / "session-state").exists() else root
         if not state_dir.exists():
@@ -183,6 +183,8 @@ class CopilotParser:
 
         sessions: list[RawSession] = []
         for path in sorted(state_dir.glob("*/events.jsonl")):
+            if not modified_since(path, since):
+                continue
             try:
                 session = parse_events_file(path)
             except (OSError, UnicodeError):

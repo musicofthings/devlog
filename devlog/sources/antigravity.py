@@ -9,22 +9,25 @@ protobuf/encrypted. This plugin does not decode those stores. If plaintext
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from devlog.models import RawSession
-from devlog.sources.base import register
+from devlog.sources.base import modified_since, register
 from devlog.sources.vitreous import parse_session_file
 
 
 class AntigravityParser:
     name = "antigravity"
 
-    def iter_sessions(self, root: Path) -> list[RawSession]:
+    def iter_sessions(self, root: Path, since: datetime | None = None) -> list[RawSession]:
         root = Path(root)
         if not root.exists():
             return []
         sessions: list[RawSession] = []
         for path in sorted(root.rglob("*.jsonl")):
+            if not modified_since(path, since):
+                continue
             if not path.is_file():
                 continue
             try:

@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 
 from devlog.models import RawSession, SessionEvent
-from devlog.sources.base import register
+from devlog.sources.base import modified_since, register
 from devlog.threads import TurnRecap
 
 _USER_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL | re.IGNORECASE)
@@ -204,7 +204,7 @@ def parse_transcript_file(path: Path, project_folder: str) -> RawSession | None:
 class CursorParser:
     name = "cursor"
 
-    def iter_sessions(self, root: Path) -> list[RawSession]:
+    def iter_sessions(self, root: Path, since: datetime | None = None) -> list[RawSession]:
         root = Path(root)
         projects_dir = root / "projects" if (root / "projects").exists() else root
         if not projects_dir.exists():
@@ -218,6 +218,8 @@ class CursorParser:
             if not transcripts.is_dir():
                 continue
             for path in sorted(transcripts.rglob("*.jsonl")):
+                if not modified_since(path, since):
+                    continue
                 try:
                     session = parse_transcript_file(path, project_folder.name)
                 except (OSError, UnicodeError):

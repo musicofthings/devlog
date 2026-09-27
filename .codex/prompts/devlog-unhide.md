@@ -1,5 +1,7 @@
 ---
-description: Unhide a soft-hidden devlog post back onto the public feed
+description: "DEPRECATED — use Codex skill .agents/skills/devlog-unhide instead"
 ---
 
-Unhide a soft-hidden devlog post. If the user typed a date after this command, use it; otherwise ask for the date (format YYYY-MM-DD). First run `devlog unhide --date <date> --dry-run` and show the result. Then explicitly ask for confirmation before running the real `devlog unhide --date <date>` (no `--dry-run`). Never run the real unhide without an explicit yes from the user.
+Custom Codex prompts (`/prompts:…`) were removed in Codex CLI 0.117+.
+Use the repo skill at `.agents/skills/devlog-unhide/SKILL.md` (or ask Codex
+to run the `devlog-unhide` skill).

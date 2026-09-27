@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from devlog.config import DevlogConfig, default_config_path, load_config
@@ -24,6 +24,7 @@ from devlog.site import list_posts, rebuild_site, write_post_markdown
 from devlog.status import record_event, status_path
 from devlog.summarize import generate_post
 
+SCAN_SLACK = timedelta(hours=1)
 MANAGED_PATHS = (
     "posts/",
     "docs/log/",
@@ -108,7 +109,8 @@ def resolve_publish_date(raw: str, *, today: date | None = None) -> date:
     return date.fromisoformat(raw)
 
 
-def collect_raw_sessions(cfg: DevlogConfig) -> list[RawSession]:
+def collect_raw_sessions(cfg: DevlogConfig, since: datetime | None = None) -> list[RawSession]:
+    """Parse every configured source. `since` skips log files untouched since then."""
     import devlog.sources  # noqa: F401
     from devlog.sources.base import get_sources
 
@@ -118,13 +120,18 @@ def collect_raw_sessions(cfg: DevlogConfig) -> list[RawSession]:
         root = cfg.root_for(source.name)
         if not root.exists():
             continue
-        raw.extend(source.iter_sessions(root))
+        raw.extend(source.iter_sessions(root, since=since))
     return raw
+
+
+def scan_start(target: date) -> datetime:
+    """Earliest file mtime that can hold events for `target` (local day, 1h slack)."""
+    return datetime.combine(target, time.min).astimezone() - SCAN_SLACK
 
 
 def collect_digests(cfg: DevlogConfig, target: date):
     tz = datetime.now().astimezone().tzinfo
-    return slice_for_date(collect_raw_sessions(cfg), target, tz)
+    return slice_for_date(collect_raw_sessions(cfg, since=scan_start(target)), target, tz)
 
 
 def _ensure_managed_paths_clean(repo: Path, git_run: GitRunner) -> None:

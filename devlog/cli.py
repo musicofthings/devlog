@@ -11,6 +11,7 @@ from devlog.config import DEFAULT_SOURCES, DevlogConfig, load_config
 from devlog.digest import slice_for_date
 from devlog.models import RawSession
 from devlog.privacy import configure_redaction
+from devlog.publish import scan_start
 from devlog.summarize import generate_post
 
 
@@ -118,7 +119,7 @@ def cmd_run(argv: list[str] | None = None) -> int:
             if args.verbose:
                 print(f"[{source.name}] no data root at {root} — skipping")
             continue
-        found = source.iter_sessions(root)
+        found = source.iter_sessions(root, since=scan_start(target_date))
         if args.verbose:
             print(f"[{source.name}] found {len(found)} session(s) under {root}")
         raw_sessions.extend(found)

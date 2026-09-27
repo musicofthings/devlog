@@ -173,3 +173,45 @@ def test_empty_day_is_not_published_but_is_mirrored(tmp_path: Path):
     cfg.publish_empty_days = True
     assert publish_day(cfg, date(2026, 7, 20))["status"] == "written"
     assert "No coding activity" in (repo / "posts" / "2026-07-20.md").read_text(encoding="utf-8")
+
+
+# ------------------------------------------------------------------ incremental scan (#5)
+
+
+def test_since_skips_logs_not_touched_since_the_target_day(tmp_path: Path):
+    import os
+    import shutil
+
+    from devlog.publish import scan_start
+    from devlog.sources.codex import CodexParser
+
+    sample = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+    root = tmp_path / "codex"
+    shutil.copytree(sample, root)
+    files = sorted(root.rglob("rollout-*.jsonl"))
+    assert files
+    everything = CodexParser().iter_sessions(root)
+    assert everything
+
+    since = scan_start(date(2026, 9, 1))
+    old = since.timestamp() - 86_400
+    for f in files:
+        os.utime(f, (old, old))
+    assert CodexParser().iter_sessions(root, since=since) == []
+    assert len(CodexParser().iter_sessions(root)) == len(everything)  # rescan: no cutoff
+
+    os.utime(files[0], None)  # touched now -> scanned again
+    assert len(CodexParser().iter_sessions(root, since=since)) == 1
+
+
+# ------------------------------------------------------------------ site templates (#12)
+
+
+def test_templates_fill_in_one_pass_and_ship_as_files():
+    from devlog import site
+
+    page = site._page("t", "<p>@@TITLE@@ is literal user text</p>")
+    assert "<p>@@TITLE@@ is literal user text</p>" in page
+    assert "<title>t · Daily Dev Log</title>" in page
+    assert "@@" not in site._admin_panel_html("o/r", "main")
+    assert "{{" not in site._template("admin_panel.html")

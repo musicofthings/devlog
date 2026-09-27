@@ -38,7 +38,7 @@ linking it to anything else. Now every publish/backfill regenerates a linked gra
    `%% … %%` is an Obsidian comment, so the embed was hidden in Reading view and Live Preview.
    The embed now sits between separate `%% devlog:daily:start %%` / `%% devlog:daily:end %%`
    markers, and old regions are migrated in place.
-3. **Verbatim prompts go to a public site.** The template post quotes your first prompt per
+3. ✅ **Verbatim prompts go to a public site.** The template post quotes your first prompt per
    project word for word (e.g. "help me clean up disk space…", "remove all mcp servers…").
    In a clinical or research setting a prompt can contain patient identifiers, sample IDs, or
    unpublished results. `privacy.py` only redacts API keys and the home path. Recommendations:
@@ -46,7 +46,7 @@ linking it to anything else. Now every publish/backfill regenerates a linked gra
      the reduced form; the vault always keeps full detail.
    - Add a user regex denylist (MRNs, sample-ID patterns, client names).
    - Default nightly jobs to `review` mode for anyone working with clinical data.
-4. **`git reset --hard HEAD~1` in rollback can destroy unrelated work.**
+4. ✅ **`git reset --hard HEAD~1` in rollback can destroy unrelated work.**
    `publish._restore_failed_publish` and `delete_cmd._restore_failed_delete` hard-reset the
    whole checkout. `_ensure_managed_paths_clean` only checks `posts/`, `docs/log/` etc., so
    uncommitted edits elsewhere in the repo (for example, devlog code you're working on) are
@@ -56,37 +56,37 @@ linking it to anything else. Now every publish/backfill regenerates a linked gra
 
 ### Medium
 
-5. **Every run re-parses your entire history.** Each `iter_sessions` walks and parses every
+5. ✅ **Every run re-parses your entire history.** Each `iter_sessions` walks and parses every
    transcript ever written (e.g. `sources/claude_code.py:212`). The cost grows without bound.
    Pass a `since` date and skip files whose mtime is older than the target day minus 1.
    `obsidian --rescan` already batches this into one pass.
-6. **Project identity is `basename(cwd)`.** That yields `shibi` (your home directory),
+6. ✅ **Project identity is `basename(cwd)`.** That yields `shibi` (your home directory),
    `window`, and `delete-post` (a worktree or branch folder) as "projects", and it split
    `Gurukul` from `gurukul`. Case is now merged in the vault. Next steps: resolve the cwd to the
    git top-level folder and the `origin` repo name, and add a `[project_aliases]` table in
    `config.toml`.
-7. **Empty days clutter the feed and history.** 20 of 44 posts say "No coding activity
+7. ✅ **Empty days clutter the feed and history.** 20 of 44 posts say "No coding activity
    logged today." Add `publish_empty_days = false`. The vault already treats these as "quiet
    days" and navigation skips them.
 8. **Template posts are low-signal** ("Tools: Read (104x), StrReplace (92x)"), and the
    LLM path is off by default for privacy. Options:
    - A local model backend (Ollama or llama.cpp) so summarization never leaves the machine.
    - A richer template: say what changed (files and commits), not how many tool calls ran.
-9. **Token usage is collected but never surfaced.** `SessionDigest.tokens_in/out/cache_read`
+9. ✅ **Token usage is collected but never surfaced.** `SessionDigest.tokens_in/out/cache_read`
    are summed per session and then thrown away. Showing them in day notes and project hubs is
    cheap (cost per project per week).
-10. **CI covers Linux + Python 3.11 only**, while the product targets Windows (Task Scheduler,
+10. ✅ **CI covers Linux + Python 3.11 only**, while the product targets Windows (Task Scheduler,
    `%LOCALAPPDATA%` paths). Add a `windows-latest` job and Python 3.12/3.13 to the matrix.
 
 ### Low / maintainability
 
-11. `config.py` lists every field three times (dataclass, `load_config`, `save_config`).
+11. ✅ `config.py` lists every field three times (dataclass, `load_config`, `save_config`).
     Generate load/save from `dataclasses.fields`.
-12. `site.py` (684 lines) embeds HTML, CSS, and JS in f-strings with `{{ }}` escaping. Move
+12. ✅ `site.py` (684 lines) embeds HTML, CSS, and JS in f-strings with `{{ }}` escaping. Move
     them to template files.
-13. `DevlogConfig.root_for` silently falls back to `claude_root` for unknown sources. Raise an
+13. ✅ `DevlogConfig.root_for` silently falls back to `claude_root` for unknown sources. Raise an
     error instead.
-14. The seven slash commands are hand-copied across five assistant folders (`.claude`,
+14. ✅ The seven slash commands are hand-copied across five assistant folders (`.claude`,
     `.cursor`, `.grok`, `.agents`, `.codex`). Generate them from one source; the drift test
     already exists.
 15. Per-project minutes for multi-project days recovered from post text are unknown and shown
@@ -134,9 +134,34 @@ linking it to anything else. Now every publish/backfill regenerates a linked gra
   tools: `list_projects`, `recent_activity`, `project_status`, `open_threads`, `search_log`,
   and `day_log`.
 
-### Phase 4: hardening
+### Phase 4: hardening ✅ shipped
 
-Items 3, 4, 5, 7, 10–14 above. Privacy (3) and rollback safety (4) come first.
+- ✅ **Rollback safety (#4):** publish, delete, and hide share one `undo_local_commit` helper
+  that runs `git reset --keep HEAD~1`. Your uncommitted work survives. If a local edit
+  overlaps the commit, git refuses and devlog reports it instead of discarding the edit. The
+  tests run against real git repositories.
+- ✅ **Privacy (#3):** `public_detail = "summary" | "projects" | "verbatim"`, default `projects`.
+  - Below `verbatim`, the public post *and* the digest sent to the LLM carry generic work types
+    instead of prompts, file names, and commands.
+  - `summary` also hides project names.
+  - `redact_patterns` adds your own regexes (MRNs, sample IDs), applied everywhere.
+  - The vault keeps full detail.
+- ✅ **Empty days (#7):** `publish_empty_days = false` by default. Quiet days go to the vault so
+  streaks and weekly notes stay accurate, but nothing is committed.
+- ✅ **Incremental scans (#5):** parsers take `since` and skip log files whose modification time
+  is before the target day (1 h slack). `--rescan` still reads everything.
+- ✅ **CI (#10):** Ubuntu and Windows × Python 3.11, 3.12, and 3.13, plus a check that the
+  slash commands are in sync.
+- ✅ **Maintainability (#11–14):**
+  - Config load and save are derived from the dataclass.
+  - `root_for` raises on unknown sources.
+  - The HTML, CSS, and JS live in `devlog/templates/`, and `site.py` went from 684 to 350
+    lines with byte-identical output.
+  - The slash commands are generated from `commands/*.md` by `python -m devlog.commands_sync`.
+
+*Still open:* the richer, less template-like public post (#8); an optional neural backend for
+related days; an optional local-LLM weekly retro; open threads for the Copilot, Grok, and
+OpenCode parsers.
 
 ## Recommended Obsidian plugins
 

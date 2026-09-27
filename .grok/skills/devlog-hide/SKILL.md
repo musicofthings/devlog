@@ -1,6 +1,7 @@
 ---
 name: devlog-hide
 description: Soft-hide a published devlog post from the public feed. Use when the user asks to hide a daily-dev-log post or run /devlog-hide.
+argument-hint: "<YYYY-MM-DD>"
 user-invocable: true
 ---
 
