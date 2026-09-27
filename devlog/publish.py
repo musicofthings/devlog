@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from devlog.config import DevlogConfig, default_config_path, load_config
-from devlog.digest import slice_for_date
+from devlog.digest import name_projects, slice_for_date
 from devlog.gitutil import (
     GitPublishError,
     GitRunner,
@@ -20,6 +20,7 @@ from devlog.gitutil import default_git as _default_git
 from devlog.models import RawSession
 from devlog.obsidian import planned_paths, try_mirror_post
 from devlog.privacy import configure_redaction
+from devlog.projects import ProjectResolver, count_commits
 from devlog.site import list_posts, rebuild_site, write_post_markdown
 from devlog.status import record_event, status_path
 from devlog.summarize import generate_post
@@ -265,11 +266,15 @@ def publish_day(
 
     configure_redaction(cfg.redact_patterns)
     digests = collect_digests(cfg, target)
+    resolver = ProjectResolver(cfg.project_aliases)
+    name_projects(digests, resolver)
+    commit_counts = count_commits([d.project_path for d in digests], resolver, target)
     body = generate_post(
         digests,
         model=cfg.model,
         allow_external_api=cfg.allow_external_api,
         public_detail=cfg.public_detail,
+        commit_counts=commit_counts,
     )
 
     if not digests and not cfg.publish_empty_days:

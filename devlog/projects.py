@@ -198,3 +198,18 @@ class ProjectResolver:
                 }
             )
         return commits
+
+
+def count_commits(project_paths: list[str], resolver: ProjectResolver, day: date) -> dict[str, int]:
+    """Your commits that day per canonical project name (each repo counted once)."""
+    counts: dict[str, int] = {}
+    seen_roots: set[Path] = set()
+    for path in project_paths:
+        project = resolver.resolve(path)
+        if project.root is None or project.root in seen_roots:
+            continue
+        seen_roots.add(project.root)
+        n = len(resolver.commits(project, day))
+        if n:
+            counts[project.name] = counts.get(project.name, 0) + n
+    return counts

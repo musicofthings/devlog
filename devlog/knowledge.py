@@ -30,12 +30,15 @@ _SLUG_BAD_RE = re.compile(r"[^a-z0-9._-]+")
 #   verbatim: "... across a, b. I worked on a: <prompt>; b: <prompt>. Tools: X (3x)."
 #   projects: "... across a, b. Work: code-review on a; feature on b."
 #   summary:  "... in 2 project(s). Work: code-review, feature."
+# optionally followed by "Shipped N commit(s)." and "Stack: Python, scanpy."
 _TEMPLATE_RE = re.compile(
     r"Today I logged (?P<minutes>\d+) active min "
     r"(?:in (?P<count>\d+) project\(s\)|across (?P<projects>.+?))\.\s*"
     r"(?:I worked on (?P<tasks>.+?)\.\s*)?"
     r"(?:Work: (?P<work>.+?)\.\s*)?"
     r"(?:I recorded activity in (?P<sessions>\d+) coding session\(s\)\.\s*)?"
+    r"(?:Shipped (?P<commits>\d+) commit\(s\)\.\s*)?"
+    r"(?:Stack: (?P<stack>[^.]+(?:\.[A-Za-z][^.]*)*)\.\s*)?"
     r"(?:Tools: (?P<tools>.+?)\.|The recorded source was (?P<sources>.+?)\.)?\s*$",
     re.DOTALL,
 )

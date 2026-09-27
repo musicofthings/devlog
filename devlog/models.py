@@ -44,6 +44,8 @@ class SessionDigest:
     tokens_cache_read: int = 0
     active_minutes: float | None = None
     threads: list[str] = field(default_factory=list)
+    # Canonical name (git remote / alias / "home"), set at publish time.
+    project_name: str | None = None
     active_intervals: list[tuple[datetime, datetime]] = field(default_factory=list, repr=False)
 
     @property

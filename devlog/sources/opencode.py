@@ -15,6 +15,7 @@ from pathlib import Path
 
 from devlog.models import RawSession, SessionEvent
 from devlog.sources.base import register
+from devlog.threads import extract_threads
 
 
 def _parse_timestamp(ts: object) -> datetime | None:
@@ -112,6 +113,17 @@ def _part_events(part: dict, fallback_ts: datetime | None) -> list[SessionEvent]
     return events
 
 
+def _part_text(part: dict) -> str | None:
+    data = part
+    nested = _load_json(part.get("data"))
+    if isinstance(nested, dict):
+        data = {**part, **nested}
+    if data.get("type") != "text":
+        return None
+    text = data.get("text") or data.get("content")
+    return text if isinstance(text, str) and text.strip() else None
+
+
 def _message_role(msg: dict) -> str:
     data = _load_json(msg.get("data"))
     if isinstance(data, dict) and isinstance(data.get("role"), str):
@@ -129,11 +141,20 @@ def _events_from_message(msg: dict, parts: list[dict]) -> list[SessionEvent]:
         ts = _parse_timestamp(created_raw) or ts
     events: list[SessionEvent] = []
     role = _message_role(msg)
+    said: list[str] = []
     for part in parts:
+        if role == "assistant":
+            text = _part_text(part)  # untruncated: follow-ups sit at the end
+            if text:
+                said.append(text)
         for ev in _part_events(part, ts):
             if ev.user_message and role != "user":
                 continue
             events.append(ev)
+    # One assistant message per turn: its recap's follow-ups are open threads.
+    threads = extract_threads("\n".join(said)) if said else []
+    if threads and ts is not None:
+        events.append(SessionEvent(timestamp=ts, threads=threads))
     if not events and role == "user":
         content = None
         if isinstance(nested, dict):
