@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -324,7 +327,7 @@ def test_publish_auto_resets_local_commit_when_push_fails(tmp_path: Path):
             return CompletedProcess(cmd, 0, stdout="M posts/2026-07-20.md\n", stderr="")
         if cmd[:2] == ["git", "push"]:
             return CompletedProcess(cmd, 1, stdout="", stderr="remote rejected")
-        if cmd[:3] == ["git", "reset", "--hard"]:
+        if cmd[:3] == ["git", "reset", "--keep"]:
             # Simulate HEAD~1 restoring the pre-publish tree (no post yet).
             (repo / "posts" / "2026-07-20.md").unlink(missing_ok=True)
             return CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -334,8 +337,105 @@ def test_publish_auto_resets_local_commit_when_push_fails(tmp_path: Path):
         publish_day(cfg, date(2026, 7, 20), force=True, git_run=fake_git)
 
     assert "local publish commit was reset" in str(excinfo.value)
-    assert any(c[:3] == ["git", "reset", "--hard"] and c[-1] == "HEAD~1" for c in calls)
+    assert any(c[:3] == ["git", "reset", "--keep"] and c[-1] == "HEAD~1" for c in calls)
     assert not (repo / "posts" / "2026-07-20.md").exists()
+
+
+def _real_git_repo(tmp_path: Path, monkeypatch) -> Path:
+    if shutil.which("git") is None:
+        pytest.skip("git not installed")
+    # Isolate from the developer's global/system git config (signing, hooks, etc.).
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.name", "devlog test")
+    git("config", "user.email", "devlog@example.invalid")
+    git("config", "commit.gpgsign", "false")
+    (repo / "docs" / "index.html").write_text("<p>placeholder</p>\n", encoding="utf-8")
+    (repo / "notes.txt").write_text("original\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "init")
+    return repo
+
+
+def test_publish_auto_failed_push_keeps_unrelated_uncommitted_edits(tmp_path: Path, monkeypatch):
+    """Rolling back the local commit must not destroy edits outside managed paths."""
+    repo = _real_git_repo(tmp_path, monkeypatch)
+    head_before = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    (repo / "notes.txt").write_text("work in progress\n", encoding="utf-8")
+    (repo / "scratch.py").write_text("print('untracked')\n", encoding="utf-8")
+
+    sample = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+    cfg = DevlogConfig(
+        sources=["codex"],
+        codex_root=str(sample),
+        repo_path=str(repo).replace("\\", "/"),
+        publish_mode="auto",
+        # No such remote, so `git pull --rebase` fails after the local commit.
+        remote="origin",
+        branch="main",
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        publish_day(cfg, date(2026, 7, 20), force=True)
+
+    assert "local publish commit was reset" in str(excinfo.value)
+    head_after = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    assert head_after == head_before
+    assert (repo / "notes.txt").read_text(encoding="utf-8") == "work in progress\n"
+    assert (repo / "scratch.py").read_text(encoding="utf-8") == "print('untracked')\n"
+    assert not (repo / "posts" / "2026-07-20.md").exists()
+
+
+def test_publish_auto_reports_when_reset_keep_refuses(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "docs" / "index.html").write_text("<p>placeholder</p>\n", encoding="utf-8")
+    sample = Path(__file__).resolve().parents[1] / "sample_data" / "codex"
+    cfg = DevlogConfig(
+        sources=["codex"],
+        codex_root=str(sample),
+        repo_path=str(repo).replace("\\", "/"),
+        publish_mode="auto",
+        remote="origin",
+        branch="main",
+    )
+
+    def fake_git(cmd: list[str], cwd: Path):
+        from subprocess import CompletedProcess
+
+        if cmd[:2] == ["git", "status"] and "--untracked-files=all" in cmd:
+            return CompletedProcess(cmd, 0, stdout="", stderr="")
+        if cmd[:2] == ["git", "status"]:
+            return CompletedProcess(cmd, 0, stdout="M posts/2026-07-20.md\n", stderr="")
+        if cmd[:2] == ["git", "push"]:
+            return CompletedProcess(cmd, 1, stdout="", stderr="remote rejected")
+        if cmd[:3] == ["git", "reset", "--keep"]:
+            return CompletedProcess(
+                cmd, 128, stdout="", stderr="error: Entry 'posts/2026-07-20.md' not uptodate."
+            )
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with pytest.raises(RuntimeError, match="remote rejected") as excinfo:
+        publish_day(cfg, date(2026, 7, 20), force=True, git_run=fake_git)
+
+    message = str(excinfo.value)
+    assert "refused" in message
+    assert "commit or stash them" in message
+    assert "`git reset --keep HEAD~1`" in message
+    assert "not uptodate" in message
+    assert "--hard" not in message
 
 
 def test_publish_auto_rolls_back_on_precommit_failure(tmp_path: Path):

@@ -60,7 +60,7 @@ devlog delete --date YYYY-MM-DD [--config PATH] [--dry-run]
 |---|---|
 | Missing post | If `posts/YYYY-MM-DD.md` doesn't exist, exit 2 with a clear message. |
 | Dry run | Prints what would be removed; does not touch files or git. |
-| Delete | Unlinks the post file, calls `rebuild_site(repo)` (existing function — already removes the now-stale `docs/log/YYYY-MM-DD.html` and rewrites `docs/log/index.html`), then stages and commits via shared `gitutil.commit_and_push`. If commit succeeds but pull/push fails, the local delete commit is auto-reset (`git reset --hard HEAD~1`). If failure is pre-commit, the post body and site HTML are restored in the working tree. |
+| Delete | Unlinks the post file, calls `rebuild_site(repo)` (existing function — already removes the now-stale `docs/log/YYYY-MM-DD.html` and rewrites `docs/log/index.html`), then stages and commits via shared `gitutil.commit_and_push`. If commit succeeds but pull/push fails, the local delete commit is auto-reset (`git reset --keep HEAD~1`, which refuses rather than overwrite uncommitted edits). If failure is pre-commit, the post body and site HTML are restored in the working tree. |
 | Publish mode | Reads `remote`/`branch` from config the same way `publish` does. Runs regardless of `publish_mode` (manual/auto/pr) — deleting isn't gated by the same review-before-publish concern that motivated `publish_mode`, since the whole point is taking something back down quickly. |
 
 Implementation reuses, not duplicates: `_git_add_and_commit` and the commit→pull-rebase→push sequence move to shared functions in `publish.py` (or are called from there) so `delete_cmd.py` has no independent git implementation.

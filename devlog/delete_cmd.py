@@ -25,12 +25,16 @@ def _restore_failed_delete(
 ) -> str:
     """Undo a failed delete. Returns a short note for the error message."""
     if committed:
-        reset = git_run(["git", "reset", "--hard", "HEAD~1"], repo)
+        # --keep (not --hard) so uncommitted edits elsewhere in the checkout
+        # survive; git refuses instead of overwriting local modifications.
+        reset = git_run(["git", "reset", "--keep", "HEAD~1"], repo)
         if reset.returncode != 0:
             detail = (reset.stderr or reset.stdout or "git reset failed").strip()
             return (
-                "delete commit is local but unpushed; run "
-                f"`git reset --hard HEAD~1` to restore (auto-reset failed: {detail})"
+                "delete commit is local but unpushed and `git reset --keep HEAD~1` "
+                "refused to run, likely because uncommitted changes touch files in "
+                "that commit; commit or stash them, then run "
+                f"`git reset --keep HEAD~1` to restore (git said: {detail})"
             )
         return "local delete commit was reset; post restored"
 
