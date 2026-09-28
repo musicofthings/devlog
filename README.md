@@ -167,7 +167,7 @@ Who writes the post is set by `post_writer`:
 
 `public_detail = "summary"` always uses the template.
 
-`redact_patterns` are your own regexes. Matches become `[REDACTED]` everywhere redaction runs: posts, the LLM digest, and vault notes. Use single-quoted TOML strings so backslashes stay literal.
+`redact_patterns` are your own regexes. Matches become `[REDACTED]` everywhere redaction runs: posts, the LLM digest, and vault notes. Use single-quoted TOML strings so backslashes stay literal. A pattern that can match an empty string (`""`, `\d*`, `(x)?`) is rejected when the config loads, since it would otherwise redact between every character.
 
 `redact_presets` switches on ready-made patterns: `mrn` (`MRN: 00123456`, "medical record number …"), `dob` (`DOB 03/14/1961`), `ssn`, `phone`, `email`, or `"clinical"` for all five. They're a starting point, not a de-identification guarantee: add your own sample-ID and accession formats to `redact_patterns`.
 
