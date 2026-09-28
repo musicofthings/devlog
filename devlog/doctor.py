@@ -135,7 +135,7 @@ def run_checks(
                       "commits can't be attributed to you in day notes"))
         from devlog.status import load_status
 
-        last = load_status(repo).get("last_publish_at")
+        last = load_status(repo).get("last_published_at")
         if last:
             try:
                 age = (now or datetime.now(UTC)) - datetime.fromisoformat(last)
