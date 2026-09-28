@@ -60,12 +60,20 @@ def user_redaction_count() -> int:
     return _user_hits[0]
 
 
+def _redact_match(match: re.Match[str]) -> str:
+    # A zero-length match (from "", "x*", "\\b", ...) must not insert a
+    # marker between every character; only real matches are redacted.
+    if not match.group(0):
+        return ""
+    _user_hits[0] += 1
+    return "[REDACTED]"
+
+
 def redact_sensitive_text(text: str) -> str:
     """Best-effort removal of credentials, the home path, and user patterns."""
     redacted = text
     for pattern in _user_patterns:
-        redacted, n = pattern.subn("[REDACTED]", redacted)
-        _user_hits[0] += n
+        redacted = pattern.sub(_redact_match, redacted)
     for pattern in _SECRET_PATTERNS:
         redacted = pattern.sub("[REDACTED_SECRET]", redacted)
     redacted = _BEARER_RE.sub(r"\1[REDACTED_SECRET]", redacted)

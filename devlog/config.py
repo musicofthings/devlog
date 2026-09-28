@@ -209,9 +209,16 @@ class DevlogConfig:
             raise ValueError("redact_patterns must be a list of regular expressions")
         for pattern in self.redact_patterns:
             try:
-                re.compile(pattern)
+                compiled = re.compile(pattern)
             except (re.error, TypeError) as exc:
                 raise ValueError(f"redact_patterns: invalid regex {pattern!r}: {exc}") from exc
+            # "", "x*", "a?" match the empty string, so they would redact
+            # between every character instead of matching an identifier.
+            if compiled.fullmatch(""):
+                raise ValueError(
+                    f"redact_patterns: {pattern!r} matches the empty string; "
+                    "it must require at least one character"
+                )
         from devlog.privacy import REDACT_PRESETS
 
         if not isinstance(self.redact_presets, list) or not all(

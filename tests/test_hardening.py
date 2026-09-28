@@ -14,7 +14,7 @@ from devlog.digest import build_raw_digest
 from devlog.gitutil import default_git as real_git
 from devlog.gitutil import undo_local_commit
 from devlog.models import SessionDigest
-from devlog.privacy import configure_redaction, redact_sensitive_text
+from devlog.privacy import configure_redaction, redact_sensitive_text, user_redaction_count
 from devlog.summarize import generate_post, summarize_with_template
 
 
@@ -148,6 +148,19 @@ def test_config_rejects_bad_privacy_settings():
         DevlogConfig(public_detail="everything").validate()
     with pytest.raises(ValueError, match="invalid regex"):
         DevlogConfig(redact_patterns=["("]).validate()
+
+
+@pytest.mark.parametrize("pattern", ["", "x*", "a?", "(MRN\\d+)?"])
+def test_config_rejects_patterns_matching_empty_string(pattern):
+    with pytest.raises(ValueError, match="matches the empty string"):
+        DevlogConfig(redact_patterns=[pattern]).validate()
+
+
+def test_zero_length_matches_never_insert_markers():
+    # Lookarounds and \b pass validation but only ever match zero characters.
+    configure_redaction(["", r"\b", r"(?=MRN)", r"MRN\d{6}"])
+    assert redact_sensitive_text("patient MRN123456 ok") == "patient [REDACTED] ok"
+    assert user_redaction_count() == 1
 
 
 # ------------------------------------------------------------------ empty days (#7)
