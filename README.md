@@ -42,7 +42,7 @@ No pipx? `python -m pip install --user "daily-devlog[mcp] @ git+https://github.c
 
 This installs a `devlog` command: `devlog run` (the default), `init`, `publish`, `hide`, `unhide`, `delete`, `obsidian`, `audit`, `deck`, `doctor`, and `mcp` (plus `devlog --version`). Everything below also works as `python main.py …`, which needs no install step.
 
-`devlog doctor` checks the config, which log sources have data, the site repository (remote, git identity, last publish, and an audit of the published posts), the GitHub CLI, the vault and its index, Ollama and Zotero when you use them, the MCP extra, and the nightly scheduled task. Problems exit 1, each with the command that fixes it. See [CHANGELOG.md](CHANGELOG.md) for what changed in each release.
+`devlog doctor` checks the config, which log sources have data, the site repository (remote, git identity, last publish, and an audit of the published posts), the GitHub CLI, the vault and its index, Ollama and Zotero when you use them, the MCP extra, and the nightly scheduled task. Problems exit 1, each with the command that fixes it. Optional tools that aren't installed (Zotero, the GitHub CLI, the MCP extra, a vault you skipped) are listed as off, not warned about, unless a setting needs them — `publish_mode = "pr"` needs `gh`, for example. See [CHANGELOG.md](CHANGELOG.md) for what changed in each release.
 
 ## Start your own log
 
@@ -91,6 +91,8 @@ Replace `docs/index.html` with your own landing page whenever you like; the log 
 devlog init      # sources, publish_mode, public_detail, Obsidian vault, nightly schedule
 devlog doctor    # every check should be ok; each problem prints its fix
 ```
+
+Every prompt is pre-filled, so you can press Enter all the way through: on a first run with what `init` finds on this machine (the tools that have log folders, your open Obsidian vault; Zotero lookups are turned off if Zotero isn't installed), and on a re-run with your current settings. It only asks for the data folder of each source you keep. Answer `-` to clear an optional value such as the vault.
 
 Start with `publish_mode = "review"` or `"manual"` until you've seen a few posts. Leave `public_detail` at `"projects"` (no prompt text) unless you want your prompts quoted. If your work involves identifiers such as MRNs or sample IDs, add `redact_presets = ["clinical"]` and your own `redact_patterns` to `~/.config/devlog/config.toml` (see [Privacy](#privacy-what-reaches-the-public-site)).
 
@@ -195,7 +197,7 @@ Initialize config (writes `~/.config/devlog/config.toml`; on Windows that's `%US
 
 ```bash
 devlog init --defaults          # non-interactive
-devlog init                     # prompts; offers to register the nightly job
+devlog init                     # prompts, pre-filled with your current settings; offers the nightly job
 devlog init --schedule-only     # (re)register the nightly job, keep the config as is
 devlog init --no-schedule       # remove the nightly job
 ```
@@ -384,7 +386,7 @@ ollama_model = "llama3.2"
 ollama_url = "http://localhost:11434"
 ```
 
-**Literature and Zotero.** Paper identifiers in what you asked for — DOIs (including `doi.org` links and bioRxiv/medRxiv), `PMID: …` or PubMed links, `PMC…` IDs, and arXiv IDs — are picked up per project and linked from the day note, project hub, topic hubs (*References seen with this topic*), `DevLog/Literature.md`, and Home. They never reach the public post. With Zotero running and [Better BibTeX](https://retorque.re/zotero-better-bibtex/) installed, each one is looked up in your library and, when it's there, linked as `[[@citekey]]` — the note name the Zotero Integration plugin gives literature notes — with the citekey in the day's `citekeys` property. Hits are cached in `DevLog/.devlog/citekeys.json`; a paper you add to Zotero later is linked on the next refresh. If Zotero is closed, devlog makes one attempt per refresh and moves on. To turn lookups off, or point at another port:
+**Literature and Zotero.** Paper identifiers in what you asked for — DOIs (including `doi.org` links and bioRxiv/medRxiv), `PMID: …` or PubMed links, `PMC…` IDs, and arXiv IDs — are picked up per project and linked from the day note, project hub, topic hubs (*References seen with this topic*), `DevLog/Literature.md`, and Home. They never reach the public post. With Zotero running and [Better BibTeX](https://retorque.re/zotero-better-bibtex/) installed, each one is looked up in your library and, when it's there, linked as `[[@citekey]]` — the note name the Zotero Integration plugin gives literature notes — with the citekey in the day's `citekeys` property. Hits are cached in `DevLog/.devlog/citekeys.json`; a paper you add to Zotero later is linked on the next refresh. If Zotero is closed, devlog makes one attempt per refresh and moves on. If Zotero isn't installed at all, `devlog init` sets `zotero_url = ""` so nothing is attempted. To turn lookups off, or point at another port:
 
 ```toml
 zotero_url = ""   # default: http://localhost:23119/better-bibtex/json-rpc

@@ -3,26 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from pathlib import Path
 
 from devlog.config import (
-    DEFAULT_OBSIDIAN_DAILY_FOLDER,
-    DEFAULT_OBSIDIAN_FOLDER,
-    DEFAULT_OBSIDIAN_ON_DELETE,
-    DEFAULT_PUBLIC_DETAIL,
-    DEFAULT_PUBLISH_MODE,
     DEFAULT_SOURCES,
     OBSIDIAN_ON_DELETE,
     PUBLIC_DETAIL_LEVELS,
     PUBLISH_MODES,
     DevlogConfig,
     default_config_path,
-    default_opencode_root,
-    default_repo_path,
-    default_warp_root,
     load_config,
     save_config,
 )
+from devlog.literature import zotero_installed
 from devlog.obsidian import (
     create_obsidian_vault,
     default_new_vault_path,
@@ -73,86 +67,70 @@ def _prompt_bool(label: str, default: bool = False) -> bool:
     return raw in {"y", "yes", "true"}
 
 
-def build_config_from_prompts() -> DevlogConfig:
-    repo = str(default_repo_path()).replace("\\", "/")
-    sources = _prompt_list("sources (comma-separated)", list(DEFAULT_SOURCES))
-    claude_root = _prompt("claude_root", "~/.claude")
-    codex_root = _prompt("codex_root", "~/.codex")
-    cursor_root = _prompt("cursor_root", "~/.cursor")
-    grok_root = _prompt("grok_root", "~/.grok")
-    copilot_root = _prompt("copilot_root", "~/.copilot")
-    opencode_root = _prompt("opencode_root", default_opencode_root())
-    warp_root = _prompt("warp_root", default_warp_root())
-    vitreous_root = _prompt("vitreous_root", "~/.vitreous")
-    antigravity_root = _prompt("antigravity_root", "~/.gemini")
-    repo_path = _prompt("repo_path (local git clone)", repo)
-    publish_mode = _prompt(
-        f"publish_mode ({'|'.join(PUBLISH_MODES)})",
-        DEFAULT_PUBLISH_MODE,
-    )
-    schedule_time = _prompt("schedule_time (HH:MM local)", "06:30")
-    remote = _prompt("remote", "origin")
-    branch = _prompt("branch", "main")
-    public_detail = _prompt(
+def _root_field(source: str) -> str:
+    return "claude_root" if source == "claude_code" else f"{source}_root"
+
+
+def detected_sources(cfg: DevlogConfig) -> list[str]:
+    """Sources whose data folder exists on this machine (all of them if none do)."""
+    found = [s for s in DEFAULT_SOURCES if cfg.root_for(s).exists()]
+    return found or list(DEFAULT_SOURCES)
+
+
+def build_config_from_prompts(existing: DevlogConfig | None = None) -> DevlogConfig:
+    """Ask for each setting, pre-filled so that Enter keeps it.
+
+    Re-running init pre-fills your current config; a first run pre-fills what
+    it detects (sources with data on this machine, the open Obsidian vault).
+    Only the data folders of the sources you keep are asked for.
+    """
+    cfg = copy.deepcopy(existing) if existing else DevlogConfig()
+    if existing is None:
+        cfg.sources = detected_sources(cfg)
+    cfg.sources = _prompt_list("sources (comma-separated)", cfg.sources)
+    for source in cfg.sources:
+        field = _root_field(source)
+        if hasattr(cfg, field):
+            setattr(cfg, field, _prompt(field, getattr(cfg, field)))
+    cfg.repo_path = _prompt("repo_path (local git clone)", cfg.repo_path).replace("\\", "/")
+    cfg.publish_mode = _prompt(f"publish_mode ({'|'.join(PUBLISH_MODES)})", cfg.publish_mode)
+    cfg.schedule_time = _prompt("schedule_time (HH:MM local)", cfg.schedule_time)
+    cfg.remote = _prompt("remote", cfg.remote)
+    cfg.branch = _prompt("branch", cfg.branch)
+    cfg.public_detail = _prompt(
         "public_detail: how much of your prompts reaches the public post "
         f"({'|'.join(PUBLIC_DETAIL_LEVELS)}; only verbatim quotes prompts)",
-        DEFAULT_PUBLIC_DETAIL,
+        cfg.public_detail,
     )
-    allow_external_api = _prompt_bool(
-        "allow transcript text to be sent to an external API? (yes|no)", False
+    cfg.allow_external_api = _prompt_bool(
+        "allow transcript text to be sent to an external API? (yes|no)",
+        cfg.allow_external_api,
     )
-    detected = detect_obsidian_vault()
-    if detected is not None:
-        vault_default = str(detected).replace("\\", "/")
-        vault_label = "obsidian_vault, detected"
+    if existing is not None:
+        vault_default, vault_label = existing.obsidian_vault, "obsidian_vault"
+    elif (detected := detect_obsidian_vault()) is not None:
+        vault_default, vault_label = str(detected), "obsidian_vault, detected"
     else:
-        vault_default = str(default_new_vault_path()).replace("\\", "/")
+        vault_default = str(default_new_vault_path())
         vault_label = "obsidian_vault, created if missing"
-    obsidian_vault = _prompt_optional(vault_label, vault_default, "no vault")
-    obsidian_folder = DEFAULT_OBSIDIAN_FOLDER
-    obsidian_daily_folder = DEFAULT_OBSIDIAN_DAILY_FOLDER
-    obsidian_on_delete = DEFAULT_OBSIDIAN_ON_DELETE
-    if obsidian_vault:
-        vault_path = Path(obsidian_vault)
+    vault = _prompt_optional(vault_label, vault_default.replace("\\", "/"), "no vault")
+    cfg.obsidian_vault = vault.replace("\\", "/")
+    if vault:
+        vault_path = Path(vault).expanduser()
         if not (vault_path / ".obsidian").is_dir():
             try:
                 create_obsidian_vault(vault_path)
                 register_obsidian_vault(vault_path)
             except OSError as exc:
                 print(f"[warn] Could not prepare Obsidian vault at {vault_path}: {exc}")
-        obsidian_folder = _prompt("obsidian_folder", DEFAULT_OBSIDIAN_FOLDER)
-        obsidian_daily_folder = _prompt_optional(
-            "obsidian_daily_folder",
-            DEFAULT_OBSIDIAN_DAILY_FOLDER,
-            "vault root",
+        cfg.obsidian_folder = _prompt("obsidian_folder", cfg.obsidian_folder)
+        cfg.obsidian_daily_folder = _prompt_optional(
+            "obsidian_daily_folder", cfg.obsidian_daily_folder, "vault root"
         )
-        obsidian_on_delete = _prompt(
-            f"obsidian_on_delete ({'|'.join(OBSIDIAN_ON_DELETE)})",
-            DEFAULT_OBSIDIAN_ON_DELETE,
+        cfg.obsidian_on_delete = _prompt(
+            f"obsidian_on_delete ({'|'.join(OBSIDIAN_ON_DELETE)})", cfg.obsidian_on_delete
         )
-    return DevlogConfig(
-        sources=sources,
-        claude_root=claude_root,
-        codex_root=codex_root,
-        cursor_root=cursor_root,
-        grok_root=grok_root,
-        copilot_root=copilot_root,
-        opencode_root=opencode_root,
-        warp_root=warp_root,
-        vitreous_root=vitreous_root,
-        antigravity_root=antigravity_root,
-        repo_path=repo_path.replace("\\", "/"),
-        publish_mode=publish_mode,
-        schedule_time=schedule_time,
-        remote=remote,
-        branch=branch,
-        allow_external_api=allow_external_api,
-        obsidian_vault=obsidian_vault.replace("\\", "/"),
-        obsidian_folder=obsidian_folder,
-        obsidian_daily_folder=obsidian_daily_folder,
-        obsidian_on_delete=obsidian_on_delete,
-        public_detail=public_detail,
-    )
+    return cfg
 
 
 # Settings init never asks about; they're edited in config.toml by hand, so
@@ -249,6 +227,7 @@ def cmd_init(argv: list[str] | None = None) -> int:
         return _schedule(host_platform(), existing, cfg_path)
     if args.defaults:
         cfg = DevlogConfig()
+        cfg.sources = detected_sources(cfg)
         try:
             path, source = ensure_obsidian_vault()
             cfg.obsidian_vault = str(path).replace("\\", "/")
@@ -256,16 +235,28 @@ def cmd_init(argv: list[str] | None = None) -> int:
         except OSError as exc:
             print(f"[warn] Could not set up Obsidian vault: {exc}")
     else:
-        print("Daily Dev Log setup — press Enter to accept defaults.\n")
         try:
-            cfg = build_config_from_prompts()
+            existing = load_config(cfg_path)
+        except (OSError, ValueError) as exc:
+            print(f"[note] Ignoring the existing config ({exc}); starting from detected values.")
+            existing = None
+        if existing is None:
+            print("Daily Dev Log setup — detected values are pre-filled; press Enter to accept.\n")
+        else:
+            print(f"Daily Dev Log setup — your current settings ({cfg_path}) are pre-filled;\n"
+                  "press Enter to keep each one.\n")
+        try:
+            cfg = build_config_from_prompts(existing)
         except ValueError as exc:
             print(f"Invalid config: {exc}")
             return 2
 
     carried = carry_over_unprompted(cfg, cfg_path)
-    if carried:
+    if carried and args.defaults:
         print("Kept from your existing config: " + ", ".join(carried))
+    if cfg.zotero_url == DevlogConfig().zotero_url and not zotero_installed():
+        cfg.zotero_url = ""
+        print('Zotero not found: citekey lookups are off (set zotero_url to turn them on).')
 
     try:
         cfg.validate()

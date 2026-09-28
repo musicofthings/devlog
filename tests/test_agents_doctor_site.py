@@ -176,7 +176,8 @@ def test_doctor_reports_problems_warnings_and_hints(tmp_path: Path):
     assert ("repo", OK) in by and ("gh", OK) in by and ("audit", OK) in by
     assert ("privacy", WARN) in by  # verbatim with no redaction
     assert ("ollama", FAIL) in by  # the post writer depends on it
-    assert ("vault", WARN) in by and ("schedule", WARN) in by  # linux, no cron entry
+    assert ("vault", OK) in by  # no vault configured: the mirror is off, not a problem
+    assert ("schedule", WARN) in by  # linux, no cron entry
     report = format_checks(checks)
     assert "[FAIL] ollama" in report and report.rstrip().endswith("warning(s).")
     assert report.isascii() or "→" not in report  # markers stay ASCII
@@ -193,7 +194,7 @@ def test_doctor_catches_leaks_missing_models_and_the_scheduled_task(tmp_path: Pa
     assert got["audit"].level == FAIL and "2026-09-23" in got["audit"].message
     assert got["ollama"].level == WARN and "nomic-embed-text" in got["ollama"].hint
     assert got["schedule"].level == FAIL and "devlog init" in got["schedule"].hint
-    assert got["gh"].level == WARN
+    assert got["gh"].level == OK  # optional unless publish_mode = "pr"
 
 
 @pytest.mark.parametrize(
