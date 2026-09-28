@@ -258,6 +258,63 @@
       font-size: 0.85em;
     }
 
+    .start { padding-top: 0; }
+    .steps {
+      list-style: none;
+      counter-reset: step;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1rem;
+      max-width: 52rem;
+    }
+    .steps li {
+      counter-increment: step;
+      border: 1px solid var(--line);
+      padding: 1.1rem 1.2rem 1.1rem 3.4rem;
+      position: relative;
+      min-width: 0;
+    }
+    @media (max-width: 600px) { .steps li { padding-left: 2.6rem; } .steps li::before { left: 0.9rem; } }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 1.2rem;
+      top: 1.05rem;
+      font-family: "IBM Plex Mono", monospace;
+      font-weight: 500;
+      color: var(--amber);
+    }
+    .steps h3 {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: 1.15rem;
+      margin: 0 0 0.4rem;
+      color: var(--ink);
+    }
+    html[data-theme="dark"] .steps h3 { color: var(--paper); }
+    .steps p {
+      margin: 0 0 0.6rem;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      color: var(--mist);
+    }
+    .steps p:last-child { margin-bottom: 0; }
+    .steps code, .steps pre {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.85em;
+    }
+    .steps pre {
+      margin: 0 0 0.6rem;
+      padding: 0.75rem 0.9rem;
+      border: 1px solid var(--line);
+      background: var(--ticker-bg);
+      color: var(--mist);
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+    .steps a, .start > p a { color: var(--amber); }
+
     footer {
       background: var(--footer-bg);
       color: var(--mist);
@@ -300,6 +357,7 @@
       <div class="cta-row">
         <a class="cta" href="https://github.com/musicofthings/devlog">Open on GitHub →</a>
         <a class="cta ghost" href="log/index.html">Read the log →</a>
+        <a class="cta ghost" href="#start">Start your own →</a>
       </div>
     </div>
   </header>
@@ -347,6 +405,51 @@
           Optional Ollama models add semantic links and retros on your own machine.</p>
       </article>
     </div>
+  </section>
+
+  <section class="features start" id="start">
+    <h2>Start your own</h2>
+    <p>Your posts live in a GitHub repo of your own, separate from the tool, so updating devlog never
+      touches them. You need Python 3.11+, git, and a GitHub account.
+      Full walkthrough, including Windows PowerShell: <a href="https://github.com/musicofthings/devlog#start-your-own-log">README → Start your own log</a>.</p>
+    <ol class="steps">
+      <li>
+        <h3>Install the tool</h3>
+        <pre>pipx install "daily-devlog[mcp] @ git+https://github.com/musicofthings/devlog"</pre>
+      </li>
+      <li>
+        <h3>Create a site repo</h3>
+        <p>Make an empty GitHub repository (<code>devlog</code> gives you
+          <code>https://&lt;you&gt;.github.io/devlog/</code>), clone it, and add the site skeleton:
+          two workflows, the log's stylesheet and script, and a landing page.</p>
+        <pre>git clone https://github.com/&lt;you&gt;/devlog.git &amp;&amp; cd devlog
+base=https://raw.githubusercontent.com/musicofthings/devlog/main
+mkdir -p .github/workflows docs/assets
+for f in .github/workflows/pages.yml .github/workflows/delete-post.yml \
+         docs/assets/theme.css docs/assets/theme.js; do
+  curl -fsSLo "$f" "$base/$f"
+done
+printf '&lt;meta http-equiv="refresh" content="0; url=log/"&gt;\n' &gt; docs/index.html
+git add . &amp;&amp; git commit -m "Add devlog site skeleton" &amp;&amp; git push</pre>
+        <p>Then turn on <strong>Settings → Pages → Source: GitHub Actions</strong>.</p>
+      </li>
+      <li>
+        <h3>Configure it inside the site repo</h3>
+        <pre>devlog init     # sources, publish mode, privacy level, vault, nightly schedule
+devlog doctor   # each problem prints its fix</pre>
+        <p>Start with <code>publish_mode = "review"</code>. The default privacy level,
+          <code>projects</code>, never quotes your prompts; add <code>redact_patterns</code>
+          for identifiers such as MRNs or sample IDs.</p>
+      </li>
+      <li>
+        <h3>Publish</h3>
+        <pre>devlog publish --dry-run --explain         # preview yesterday's post
+devlog publish                             # write it (review mode: no push yet)
+devlog publish --confirm --date YYYY-MM-DD # push it</pre>
+        <p>Your log goes live at <code>https://&lt;you&gt;.github.io/devlog/log/</code>. After that, the
+          nightly task (Windows) or a cron entry (macOS, Linux) publishes each day for you.</p>
+      </li>
+    </ol>
   </section>
 
   <section class="results" id="results">

@@ -44,6 +44,9 @@ safer automation, and devlog learned about pipelines, papers, and slides.
   to their repo, `~` becomes `home`), plus `project_aliases`.
 - Slash commands generated for Claude Code, Cursor, Grok, and Codex from
   `commands/*.md`.
+- **Start your own log.** README and landing-page guide for running devlog
+  against your own site repo: install from GitHub with pipx, add the site
+  skeleton, publish.
 
 ### Changed
 - Licensed under MIT (see `LICENSE`).
@@ -55,6 +58,9 @@ safer automation, and devlog learned about pipelines, papers, and slides.
   hand-edited settings.
 - CI: Ubuntu and Windows × Python 3.11–3.13, ruff, mypy, slash-command sync,
   post audit, and a package build with `twine check`.
+- The Pages workflow skips its deploy, instead of failing, until a new site
+  repo has its first post; the hide/delete workflow installs devlog from
+  GitHub when the repo is a site-only repo.
 
 ### Fixed
 - Harness-injected text (MCP manifests, AGENTS.md, skill preambles) no longer
@@ -63,6 +69,12 @@ safer automation, and devlog learned about pipelines, papers, and slides.
 - Rollback after a failed push used `git reset --hard` and could discard
   unrelated work; it now uses `git reset --keep`.
 - Dark theme: the landing page's secondary button text was invisible.
+- Installed with pip/pipx, `repo_path` defaulted to `site-packages`; it now
+  defaults to the current directory (a source checkout still uses itself).
+- `redact_patterns` that match the empty string are rejected; they redacted
+  between every character.
+- `devlog doctor` read the last publish time under the wrong key, so it always
+  said "nothing published yet" and never flagged a stalled nightly publish.
 
 ## 0.1.0
 

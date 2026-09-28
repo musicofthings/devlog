@@ -288,3 +288,26 @@ def test_rerunning_init_keeps_hand_edited_settings(tmp_path: Path, monkeypatch):
     assert loaded.redact_patterns == [r"MRN\d{6}"]
     assert loaded.publish_empty_days is True
     assert loaded.publish_mode == "manual"  # prompted settings still reset to the answer
+
+
+# ------------------------------------------------------------------ repo_path default
+
+
+def test_default_repo_path_is_the_checkout_when_running_from_source():
+    import devlog.config as config
+
+    assert config.default_repo_path() == Path(config.__file__).resolve().parents[1]
+
+
+def test_default_repo_path_is_cwd_when_installed_as_a_package(tmp_path, monkeypatch):
+    # pip/pipx put the package in site-packages, which is never the site repo.
+    import devlog.config as config
+
+    installed = tmp_path / "site-packages" / "devlog" / "config.py"
+    installed.parent.mkdir(parents=True)
+    site = tmp_path / "my-site"
+    site.mkdir()
+    monkeypatch.setattr(config, "__file__", str(installed))
+    monkeypatch.chdir(site)
+    assert config.default_repo_path() == site
+    assert DevlogConfig().repo_path == str(site).replace("\\", "/")
