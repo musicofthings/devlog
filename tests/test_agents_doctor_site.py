@@ -13,6 +13,7 @@ import pytest
 from devlog.config import DevlogConfig, save_config
 from devlog.doctor import FAIL, OK, WARN, format_checks, run_checks
 from devlog.site import build_feed_html, build_rss, rebuild_site, site_base_url
+from devlog.status import record_event
 from devlog.vault_write import VaultWriter, clean_agent_text
 from tests.test_remaining import _day, _vault
 
@@ -193,6 +194,30 @@ def test_doctor_catches_leaks_missing_models_and_the_scheduled_task(tmp_path: Pa
     assert got["ollama"].level == WARN and "nomic-embed-text" in got["ollama"].hint
     assert got["schedule"].level == FAIL and "devlog init" in got["schedule"].hint
     assert got["gh"].level == WARN
+
+
+@pytest.mark.parametrize(
+    ("published_at", "mode", "level"),
+    [
+        (None, "auto", WARN),  # never published
+        ("2026-09-26T06:30:00+00:00", "auto", OK),  # yesterday
+        ("2026-09-20T06:30:00+00:00", "auto", WARN),  # stalled: check the scheduled task
+        ("2026-09-20T06:30:00+00:00", "manual", OK),  # manual publishing is irregular by design
+    ],
+)
+def test_doctor_reads_last_publish_from_status_file(tmp_path: Path, published_at, mode, level):
+    path = _setup(tmp_path, publish_mode=mode)
+    if published_at:
+        # Written by the same helper publish uses, so the key names can't drift.
+        record_event(tmp_path / "repo", event="published", date=published_at[:10], at=published_at)
+    checks = run_checks(path, run=_fake_run(GIT_OK), which=lambda _: "/usr/bin/gh",
+                        os_name="linux", now=datetime(2026, 9, 27, 12, tzinfo=UTC))
+    publish = next(c for c in checks if c.area == "publish")
+    assert publish.level == level
+    if published_at:
+        assert publish.message.startswith(f"last publish {published_at[:16]}")
+    else:
+        assert publish.message == "nothing published yet"
 
 
 def test_cli_version_and_doctor(tmp_path: Path, capsys):
