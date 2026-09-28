@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import tomllib
 import typing
 from dataclasses import asdict, dataclass, field, fields
@@ -67,10 +68,16 @@ def default_opencode_root() -> str:
     return "~/.local/share/opencode"
 
 
-def default_warp_root() -> str:
+def default_warp_root(platform: str | None = None) -> str:
     localapp = os.environ.get("LOCALAPPDATA")
     if localapp:
         return _norm_path(str(Path(localapp) / "warp" / "Warp"))
+    if (platform or sys.platform) == "darwin":
+        # Warp on macOS keeps warp.sqlite in its app group container; use the
+        # first channel folder (Stable, Preview, ...) that actually has one.
+        containers = Path.home() / "Library" / "Group Containers"
+        for db in sorted(containers.glob("*.dev.warp/Library/Application Support/*/warp.sqlite")):
+            return _norm_path(str(db.parent))
     return _norm_path(str(Path.home() / ".local" / "share" / "warp" / "Warp"))
 
 

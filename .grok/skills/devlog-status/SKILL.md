@@ -9,6 +9,6 @@ Give a quick devlog status check:
 2. Read `.devlog-status.json` at the repo root if present, and report the last published/deleted/hidden date and time.
 3. If `.devlog-hidden.json` exists, list currently soft-hidden dates.
 4. Run `devlog publish --dry-run` to preview what the next publish would contain, without writing or pushing anything.
-5. On Windows, if doctor didn't already cover it, check whether the nightly scheduled task is registered: `schtasks /Query /TN DailyDevLogPublish /V /FO LIST`. If it's missing, say so and offer to run `devlog init` to re-register it.
+5. Report doctor's `schedule` line (the nightly job: Task Scheduler task `DailyDevLogPublish` on Windows, launchd agent `dev.devlog.publish` on macOS, cron on Linux). If it's missing or broken, say so and offer to run `devlog init --schedule-only`, which re-registers it from the current config (on Linux it prints the cron line to add).
 
 Summarize all of this concisely.

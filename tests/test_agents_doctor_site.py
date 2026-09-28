@@ -176,7 +176,7 @@ def test_doctor_reports_problems_warnings_and_hints(tmp_path: Path):
     assert ("repo", OK) in by and ("gh", OK) in by and ("audit", OK) in by
     assert ("privacy", WARN) in by  # verbatim with no redaction
     assert ("ollama", FAIL) in by  # the post writer depends on it
-    assert ("vault", WARN) in by and ("schedule", OK) in by
+    assert ("vault", WARN) in by and ("schedule", WARN) in by  # linux, no cron entry
     report = format_checks(checks)
     assert "[FAIL] ollama" in report and report.rstrip().endswith("warning(s).")
     assert report.isascii() or "→" not in report  # markers stay ASCII

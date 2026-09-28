@@ -1,6 +1,7 @@
 """
-Parses Warp agent conversations from the local SQLite store
-(%LOCALAPPDATA%/warp/Warp/data/warp.sqlite).
+Parses Warp agent conversations from the local SQLite store: warp.sqlite under
+the configured root, directly or in data/ (Windows: %LOCALAPPDATA%/warp/Warp;
+macOS: Warp's app-group folder under ~/Library/Group Containers).
 
 Tables: agent_conversations, ai_queries, agent_tasks.
 Zero rows is not an error — Warp may keep transcripts in the cloud.

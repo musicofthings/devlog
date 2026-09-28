@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -23,7 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from devlog import __version__
-from devlog.config import default_config_path, load_config
+from devlog.config import DevlogConfig, default_config_path, load_config
 
 OK, WARN, FAIL = "ok", "warn", "FAIL"
 
@@ -227,22 +229,63 @@ def run_checks(
                       'open Zotero to link citekeys, or set zotero_url = "" to stop trying'))
 
     # ---------------------------------------------------------------- scheduler
-    if os_name == "win32":
-        from devlog.scheduler import TASK_NAME
+    add(_schedule_check(cfg, run, os_name))
+    return checks
 
+
+def _schedule_check(cfg: DevlogConfig, run: Runner, os_name: str) -> Check:
+    from devlog.scheduler import (
+        LAUNCHD_LABEL,
+        TASK_NAME,
+        host_platform,
+        launchd_plist_path,
+        macos_log_path,
+    )
+
+    # A missing nightly job is a problem only when publishing is meant to be automatic.
+    missing = FAIL if cfg.publish_mode in {"auto", "pr", "review"} else WARN
+    host = host_platform(os_name)
+    if host == "windows":
         try:
-            query = run(["schtasks", "/Query", "/TN", TASK_NAME], Path.cwd())
-            present = query.returncode == 0
+            present = run(["schtasks", "/Query", "/TN", TASK_NAME], Path.cwd()).returncode == 0
         except (OSError, subprocess.SubprocessError):
             present = False
-        add(Check(OK, "schedule", f"{TASK_NAME} is registered ({cfg.schedule_time})")
-            if present else
-            Check(FAIL if cfg.publish_mode in {"auto", "pr", "review"} else WARN, "schedule",
-                  f"{TASK_NAME} is not registered", "run: devlog init (re-registers it)"))
-    else:
-        add(Check(OK, "schedule", "nightly task is Windows-only here; use cron/launchd "
-                                  f"to run `devlog publish` at {cfg.schedule_time}"))
-    return checks
+        if present:
+            return Check(OK, "schedule", f"{TASK_NAME} is registered ({cfg.schedule_time})")
+        return Check(missing, "schedule", f"{TASK_NAME} is not registered",
+                     "run: devlog init --schedule-only")
+    if host == "macos":
+        plist = launchd_plist_path()
+        if not plist.is_file():
+            return Check(missing, "schedule", "no launchd job for the nightly publish",
+                         "run: devlog init --schedule-only")
+        try:
+            args = plistlib.loads(plist.read_bytes()).get("ProgramArguments") or []
+        except (OSError, ValueError):
+            args = []
+        if not args or not Path(args[0]).exists():
+            return Check(FAIL, "schedule", f"{plist.name} points at a Python that no longer "
+                         "exists", "run: devlog init --schedule-only (rewrites it)")
+        try:
+            loaded = run(["launchctl", "print", f"gui/{os.getuid()}/{LAUNCHD_LABEL}"],  # type: ignore[attr-defined,unused-ignore]
+                         Path.cwd()).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            loaded = False
+        if not loaded:
+            return Check(missing, "schedule", f"{plist.name} exists but isn't loaded",
+                         "run: devlog init --schedule-only (reloads it)")
+        return Check(OK, "schedule", f"launchd job loaded ({cfg.schedule_time}); "
+                     f"log: {macos_log_path()}")
+    try:
+        crontab = run(["crontab", "-l"], Path.cwd())
+        entries = crontab.stdout if crontab.returncode == 0 else ""
+        found = "devlog" in entries and "publish" in entries
+    except (OSError, subprocess.SubprocessError):
+        found = False
+    if found:
+        return Check(OK, "schedule", "cron entry for devlog publish found")
+    return Check(WARN, "schedule", "no cron entry runs devlog publish",
+                 "run: devlog init --schedule-only (prints the line to add with crontab -e)")
 
 
 def format_checks(checks: list[Check]) -> str:

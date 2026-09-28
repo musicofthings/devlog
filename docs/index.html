@@ -447,7 +447,8 @@ devlog doctor   # each problem prints its fix</pre>
 devlog publish                             # write it (review mode: no push yet)
 devlog publish --confirm --date YYYY-MM-DD # push it</pre>
         <p>Your log goes live at <code>https://&lt;you&gt;.github.io/devlog/log/</code>. After that, the
-          nightly task (Windows) or a cron entry (macOS, Linux) publishes each day for you.</p>
+          nightly job <code>devlog init</code> sets up (Task Scheduler on Windows, launchd on macOS,
+          cron on Linux) publishes each day for you.</p>
       </li>
     </ol>
   </section>

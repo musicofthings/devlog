@@ -44,6 +44,11 @@ safer automation, and devlog learned about pipelines, papers, and slides.
   to their repo, `~` becomes `home`), plus `project_aliases`.
 - Slash commands generated for Claude Code, Cursor, Grok, and Codex from
   `commands/*.md`.
+- **macOS scheduling.** `devlog init` registers a launchd agent for the nightly
+  publish (runs a missed job at wake) and writes a `Publish Devlog Now.command`;
+  on Linux it prints the cron line. `devlog init --schedule-only` re-registers
+  the nightly job from the current config without re-asking anything, and
+  `devlog doctor` checks the job on Windows, macOS, and Linux.
 - **Start your own log.** README and landing-page guide for running devlog
   against your own site repo: install from GitHub with pipx, add the site
   skeleton, publish.
@@ -73,6 +78,13 @@ safer automation, and devlog learned about pipelines, papers, and slides.
   defaults to the current directory (a source checkout still uses itself).
 - `redact_patterns` that match the empty string are rejected; they redacted
   between every character.
+- On macOS and Linux, `devlog init` wrote a Windows `.cmd` shortcut to the
+  Desktop and offered to register a Windows Task Scheduler job.
+- `devlog init` prompts that said "blank to skip" (the Obsidian vault) or
+  "blank = vault root" (the daily-notes folder) took the default on a blank
+  answer; `-` now clears them.
+- Warp on macOS: its default root now finds `warp.sqlite` in Warp's app-group
+  folder under `~/Library/Group Containers`.
 - `devlog doctor` read the last publish time under the wrong key, so it always
   said "nothing published yet" and never flagged a stalled nightly publish.
 
