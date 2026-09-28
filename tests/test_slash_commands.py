@@ -113,7 +113,8 @@ def test_status_checks_status_file_and_schedule():
         text = _command_path(surface, "devlog-status").read_text(encoding="utf-8")
         assert ".devlog-status.json" in text
         assert "devlog publish --dry-run" in text
-        assert "DailyDevLogPublish" in text
+        assert "DailyDevLogPublish" in text and "dev.devlog.publish" in text
+        assert "devlog init --schedule-only" in text
         assert ".devlog-hidden.json" in text
 
 

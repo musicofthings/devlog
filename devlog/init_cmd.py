@@ -31,9 +31,16 @@ from devlog.obsidian import (
     register_obsidian_vault,
 )
 from devlog.scheduler import (
+    cron_line,
+    host_platform,
+    macos_log_path,
+    register_launchd_agent,
     register_windows_task,
+    scheduler_name,
     try_enable_task_history,
+    unregister_launchd_agent,
     unregister_windows_task,
+    write_publish_now_command,
     write_publish_now_shortcut,
 )
 
@@ -41,6 +48,15 @@ from devlog.scheduler import (
 def _prompt(label: str, default: str) -> str:
     raw = input(f"{label} [{default}]: ").strip()
     return raw or default
+
+
+NONE_ANSWER = "-"
+
+
+def _prompt_optional(label: str, default: str, none_means: str) -> str:
+    """Like _prompt, but `-` clears the value (Enter alone always takes the default)."""
+    raw = _prompt(f"{label} ({NONE_ANSWER} = {none_means})", default)
+    return "" if raw == NONE_ANSWER else raw
 
 
 def _prompt_list(label: str, default: list[str]) -> list[str]:
@@ -88,11 +104,11 @@ def build_config_from_prompts() -> DevlogConfig:
     detected = detect_obsidian_vault()
     if detected is not None:
         vault_default = str(detected).replace("\\", "/")
-        vault_label = "obsidian_vault (detected; blank to skip)"
+        vault_label = "obsidian_vault, detected"
     else:
         vault_default = str(default_new_vault_path()).replace("\\", "/")
-        vault_label = "obsidian_vault (will create if missing; blank to skip)"
-    obsidian_vault = _prompt(vault_label, vault_default)
+        vault_label = "obsidian_vault, created if missing"
+    obsidian_vault = _prompt_optional(vault_label, vault_default, "no vault")
     obsidian_folder = DEFAULT_OBSIDIAN_FOLDER
     obsidian_daily_folder = DEFAULT_OBSIDIAN_DAILY_FOLDER
     obsidian_on_delete = DEFAULT_OBSIDIAN_ON_DELETE
@@ -105,9 +121,10 @@ def build_config_from_prompts() -> DevlogConfig:
             except OSError as exc:
                 print(f"[warn] Could not prepare Obsidian vault at {vault_path}: {exc}")
         obsidian_folder = _prompt("obsidian_folder", DEFAULT_OBSIDIAN_FOLDER)
-        obsidian_daily_folder = _prompt(
-            "obsidian_daily_folder (blank = vault root)",
+        obsidian_daily_folder = _prompt_optional(
+            "obsidian_daily_folder",
             DEFAULT_OBSIDIAN_DAILY_FOLDER,
+            "vault root",
         )
         obsidian_on_delete = _prompt(
             f"obsidian_on_delete ({'|'.join(OBSIDIAN_ON_DELETE)})",
@@ -183,7 +200,7 @@ def pages_checklist() -> str:
         "`devlog publish --confirm --date YYYY-MM-DD` when ready to push.\n"
         "\nObsidian: `devlog init` detects your current vault from Obsidian's\n"
         "app config, or creates ~/Documents/DevLog (with .obsidian) if none is\n"
-        "found. Blank the vault path to skip. Each publish mirrors the post into\n"
+        "found. Answer - at the vault prompt to skip it. Each publish mirrors the post into\n"
         "DevLog/YYYY-MM-DD.md and a Daily Note embed. Hard delete never removes\n"
         "vault notes unless obsidian_on_delete=remove or you pass\n"
         "`devlog delete --also-obsidian`.\n"
@@ -207,16 +224,29 @@ def cmd_init(argv: list[str] | None = None) -> int:
     sched.add_argument(
         "--schedule",
         action="store_true",
-        help="Register a Windows scheduled task for nightly publish",
+        help="Register the nightly publish job (Windows Task Scheduler or macOS launchd; "
+        "on Linux, prints the cron line)",
     )
     sched.add_argument(
         "--no-schedule",
         action="store_true",
-        help="Do not register a scheduled task",
+        help="Do not schedule, and remove a nightly job registered earlier",
+    )
+    sched.add_argument(
+        "--schedule-only",
+        action="store_true",
+        help="(Re)register the nightly job from the existing config without asking "
+        "anything or changing the config",
     )
     args = parser.parse_args(argv)
 
     cfg_path = args.config or default_config_path()
+    if args.schedule_only:
+        existing = load_config(cfg_path)
+        if existing is None:
+            print(f"No config at {cfg_path}; run `devlog init` first.")
+            return 2
+        return _schedule(host_platform(), existing, cfg_path)
     if args.defaults:
         cfg = DevlogConfig()
         try:
@@ -247,45 +277,111 @@ def cmd_init(argv: list[str] | None = None) -> int:
     print(f"Wrote config: {saved}")
     print(pages_checklist())
 
-    try:
-        shortcut = write_publish_now_shortcut(cfg, config_path=saved)
-        print(f"Publish-now shortcut written: {shortcut} (double-click to publish immediately)")
-    except Exception as exc:  # noqa: BLE001
-        print(f"[note] Could not write publish-now shortcut: {exc}")
+    platform = host_platform()
+    _write_shortcut(platform, cfg, saved)
 
     do_schedule = args.schedule
     if not args.defaults and not args.schedule and not args.no_schedule:
-        ans = input("Register Windows Task Scheduler job? [y/N]: ").strip().lower()
-        do_schedule = ans in {"y", "yes"}
+        if platform == "linux":
+            do_schedule = True  # prints the cron line; nothing is registered
+        else:
+            ans = input(
+                f"Publish nightly at {cfg.schedule_time} with {scheduler_name()}? [y/N]: "
+            ).strip().lower()
+            do_schedule = ans in {"y", "yes"}
     if args.defaults and not args.schedule:
         do_schedule = False
 
     if do_schedule:
-        try:
-            task_name = register_windows_task(cfg, config_path=saved)
-            print(f"Scheduled task registered: {task_name}")
-        except Exception as exc:  # noqa: BLE001
-            print(f"[warn] Could not register scheduled task: {exc}")
-            return 1
-        if try_enable_task_history():
-            print("Task Scheduler history logging enabled.")
-        else:
-            print(
-                "[note] Could not enable Task Scheduler history logging (needs an "
-                "elevated/Administrator PowerShell -- opening a regular PowerShell "
-                "window is not enough). Without it, if this task ever silently "
-                "stops running, there will be no log explaining why. To enable it "
-                "later, open PowerShell as Administrator and run:\n"
-                '  wevtutil sl "Microsoft-Windows-TaskScheduler/Operational" /e:true'
-            )
+        code = _schedule(platform, cfg, saved)
+        if code:
+            return code
     elif args.no_schedule:
-        try:
-            unregister_windows_task()
-        except Exception:  # noqa: BLE001
-            pass
+        _unschedule(platform)
 
     print(
         "Publish gate is controlled by publish_mode in config "
         f"(current: {cfg.publish_mode!r}). Change anytime by editing {saved}."
     )
     return 0
+
+
+def _write_shortcut(platform: str, cfg: DevlogConfig, config_path: Path) -> None:
+    """A double-clickable publish-now file on the Desktop (Windows .cmd, macOS .command)."""
+    if platform == "linux":
+        return
+    try:
+        if platform == "windows":
+            shortcut = write_publish_now_shortcut(cfg, config_path=config_path)
+        else:
+            shortcut = write_publish_now_command(cfg, config_path=config_path)
+        print(f"Publish-now shortcut written: {shortcut} (double-click to publish immediately)")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[note] Could not write publish-now shortcut: {exc}")
+
+
+def _schedule(platform: str, cfg: DevlogConfig, config_path: Path) -> int:
+    if platform == "linux":
+        print(
+            "\nNightly publish on Linux: add this line with `crontab -e`:\n"
+            f"  {cron_line(cfg, config_path=config_path)}"
+        )
+        return 0
+    if platform == "macos":
+        try:
+            plist = register_launchd_agent(cfg, config_path=config_path)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] Could not register the launchd job: {exc}")
+            return 1
+        print(
+            f"launchd job registered: {plist}\n"
+            f"  Runs daily at {cfg.schedule_time} (or at wake, if the Mac was asleep).\n"
+            f"  Log: {macos_log_path()}"
+        )
+        if cfg.allow_external_api and not _plist_has_api_key(plist):
+            print(
+                "[note] launchd doesn't see ANTHROPIC_API_KEY from your shell, so nightly "
+                "posts use the built-in template. To let Claude write them, add\n"
+                "  <key>ANTHROPIC_API_KEY</key><string>sk-ant-...</string>\n"
+                f"under EnvironmentVariables in {plist}, then reload it with "
+                "`devlog init --schedule-only` (which keeps the key)."
+            )
+        return 0
+    try:
+        task_name = register_windows_task(cfg, config_path=config_path)
+        print(f"Scheduled task registered: {task_name}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[warn] Could not register scheduled task: {exc}")
+        return 1
+    if try_enable_task_history():
+        print("Task Scheduler history logging enabled.")
+    else:
+        print(
+            "[note] Could not enable Task Scheduler history logging (needs an "
+            "elevated/Administrator PowerShell -- opening a regular PowerShell "
+            "window is not enough). Without it, if this task ever silently "
+            "stops running, there will be no log explaining why. To enable it "
+            "later, open PowerShell as Administrator and run:\n"
+            '  wevtutil sl "Microsoft-Windows-TaskScheduler/Operational" /e:true'
+        )
+    return 0
+
+
+def _plist_has_api_key(plist: Path) -> bool:
+    import plistlib
+
+    try:
+        env = plistlib.loads(plist.read_bytes()).get("EnvironmentVariables") or {}
+    except (OSError, ValueError):
+        return False
+    return bool(env.get("ANTHROPIC_API_KEY"))
+
+
+def _unschedule(platform: str) -> None:
+    try:
+        if platform == "windows":
+            unregister_windows_task()
+        elif platform == "macos":
+            unregister_launchd_agent()
+    except Exception:  # noqa: BLE001
+        pass

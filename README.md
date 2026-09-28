@@ -25,7 +25,7 @@ Transcripts never leave your machine unless you explicitly allow the (redacted) 
 | **Local-first extras** | Optional [Ollama](https://ollama.com) models for semantic related days, period retros, and writing the post itself. None of it leaves your machine. |
 | **Explainable** | `devlog publish --dry-run --explain` shows exactly which sources, names, settings, and writer shaped the day's post. |
 | **Agent memory** | `devlog mcp` lets Claude Code or Codex ask "what did I do on this project, and what's still open?" — and, if you opt in, tick off threads and record notes and decisions. |
-| **Safe automation** | A nightly Windows scheduled task; `review`/`pr`/`manual` publish modes; rollback that never discards your uncommitted work; hide or delete a post from the live site. |
+| **Safe automation** | A nightly job (Windows Task Scheduler or macOS launchd; cron on Linux); `review`/`pr`/`manual` publish modes; rollback that never discards your uncommitted work; hide or delete a post from the live site. |
 
 ## Install
 
@@ -88,7 +88,7 @@ Replace `docs/index.html` with your own landing page whenever you like; the log 
 **4. Configure devlog.** Run `init` from *inside* the site repo; it uses the current folder as `repo_path`:
 
 ```bash
-devlog init      # sources, publish_mode, public_detail, Obsidian vault, nightly schedule (Windows)
+devlog init      # sources, publish_mode, public_detail, Obsidian vault, nightly schedule
 devlog doctor    # every check should be ok; each problem prints its fix
 ```
 
@@ -104,10 +104,10 @@ devlog publish --confirm --date YYYY-MM-DD   # review mode: commit and push once
 
 In `manual` mode, commit and push `posts/`, `docs/` and `.devlog-status.json` yourself. In `auto` mode, `devlog publish` commits and pushes on its own. Your site is live at `https://<you>.github.io/<repo>/log/` a minute or two after the push.
 
-**6. Run it every night.** On Windows, `devlog init` registers the `DailyDevLogPublish` scheduled task (06:30 by default). On macOS or Linux, add a cron entry (`crontab -e`; cron's `PATH` is minimal, so use the full path that `which devlog` prints):
+**6. Run it every night.** Answer `y` when `devlog init` asks to publish nightly (at `schedule_time`, 06:30 by default). On Windows that registers a Task Scheduler job; on macOS, a launchd job, which also catches up on a run it missed while the Mac was asleep. On Linux, `init` prints the cron line to add with `crontab -e`. See [Platform differences](#platform-differences) for where each one logs and how to check it. To set it up later, or fix it, without redoing the rest of setup:
 
-```
-30 6 * * * cd /path/to/your/site-repo && $HOME/.local/bin/devlog publish >> $HOME/devlog-publish.log 2>&1
+```bash
+devlog init --schedule-only     # (re)register the nightly job from your current config
 ```
 
 Then run `devlog audit` now and then to check nothing sensitive has reached the public site.
@@ -162,7 +162,7 @@ to replace an existing post unless `--force` is supplied.
 | `--grok-root` | `~/.grok` | Grok CLI data root |
 | `--copilot-root` | `~/.copilot` | GitHub Copilot CLI data root |
 | `--opencode-root` | `%LOCALAPPDATA%/opencode` (Windows) or `~/.local/share/opencode` | OpenCode data dir (`opencode.db`) |
-| `--warp-root` | `%LOCALAPPDATA%/warp/Warp` | Warp data root (`data/warp.sqlite`) |
+| `--warp-root` | `%LOCALAPPDATA%/warp/Warp` (Windows), Warp's app-group folder under `~/Library/Group Containers` (macOS, when found), else `~/.local/share/warp/Warp` | Folder with `warp.sqlite` or `data/warp.sqlite` |
 | `--vitreous-root` | `~/.vitreous` | Vitreous sessions root (JSONL when persisted) |
 | `--antigravity-root` | `~/.gemini` | Antigravity / Gemini data root |
 | `--sample-mode` | off | Optional/legacy; Claude sample layout is auto-detected |
@@ -183,7 +183,7 @@ Missing roots are skipped (other sources still run). Empty stores (Warp with clo
 | `grok` | Real parser | `~/.grok` | `sessions/<url-encoded-cwd>/<uuid>/chat_history.jsonl` |
 | `copilot` | Real parser | `~/.copilot` | `session-state/<uuid>/events.jsonl` |
 | `opencode` | Skip-empty | OS data dir | SQLite `opencode.db` (legacy JSON fallback) |
-| `warp` | Skip-empty | `%LOCALAPPDATA%/warp/Warp` | Local SQLite; 0 rows if cloud storage is on |
+| `warp` | Skip-empty | `%LOCALAPPDATA%/warp/Warp`; macOS `~/Library/Group Containers/…dev.warp…` | Local SQLite; 0 rows if cloud storage is on |
 | `vitreous` | Skip-empty | `~/.vitreous` | Looks for `sessions/*.jsonl`; persistence not shipped yet. Does not parse `nvidia-skills`. |
 | `antigravity` | Deferred | `~/.gemini` | Conversations are protobuf/encrypted; no fake decoder. Plaintext `.jsonl` is parsed if present. |
 
@@ -191,12 +191,29 @@ Not installed here and not stubbed: Aider, gemini-cli, Cline, Continue, Windsurf
 
 ## Publish automatically
 
-Initialize config (writes `%USERPROFILE%\.config\devlog\config.toml`):
+Initialize config (writes `~/.config/devlog/config.toml`; on Windows that's `%USERPROFILE%\.config\devlog\config.toml`):
 
 ```bash
 devlog init --defaults          # non-interactive
-devlog init                     # prompts; can register Task Scheduler
+devlog init                     # prompts; offers to register the nightly job
+devlog init --schedule-only     # (re)register the nightly job, keep the config as is
+devlog init --no-schedule       # remove the nightly job
 ```
+
+### Platform differences
+
+`devlog init` only does what fits the machine it runs on.
+
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| Nightly job | Task Scheduler task `DailyDevLogPublish` | launchd agent `~/Library/LaunchAgents/dev.devlog.publish.plist` | cron: `init` prints the line to add with `crontab -e` |
+| Missed runs (machine asleep or off) | skipped | run at wake (not after power-off) | skipped |
+| Log | `%LOCALAPPDATA%\devlog\publish.log` | `~/Library/Logs/devlog/publish.log` | wherever the cron line sends it (`~/devlog-publish.log`) |
+| Publish-now shortcut on the Desktop | `Publish Devlog Now.cmd` | `Publish Devlog Now.command` (opens in Terminal) | none: run `devlog publish` |
+| Check it | `schtasks /Query /TN DailyDevLogPublish` | `launchctl print gui/$(id -u)/dev.devlog.publish` | `crontab -l` |
+| Obsidian vault detection | `%APPDATA%\obsidian\obsidian.json` | `~/Library/Application Support/obsidian/obsidian.json` | `~/.config/obsidian/obsidian.json` |
+
+`devlog doctor` checks the nightly job on all three. Nightly runs don't see the environment of your shell, so `ANTHROPIC_API_KEY` from `~/.zshrc` or your Windows profile doesn't reach them: without it (or with `allow_external_api = false`) posts come from the built-in template. On macOS, add the key under `EnvironmentVariables` in the plist and run `devlog init --schedule-only`; the key is kept whenever the job is re-registered. On Linux, put `ANTHROPIC_API_KEY=… ` at the start of the cron command.
 
 Publish yesterday's post into `posts/` + rebuild `docs/log/`:
 
@@ -209,7 +226,7 @@ devlog publish --confirm --date 2026-07-20   # push an already-written review-mo
 
 The rebuilt log (`docs/log/`) has a search box that filters every post as you type (it also takes `?q=` links, e.g. `log/?q=nextflow`) and an RSS feed at `log/feed.xml` with the latest 30 visible posts. Feed links use your GitHub Pages address, or `docs/CNAME` if you set a custom domain; hidden posts are left out of both.
 
-Publishing always runs locally — your session transcripts never leave this machine, so there's no "publish" button on the website. To publish on demand instead of waiting for the nightly schedule, either run `devlog publish` yourself, or double-click the `Publish Devlog Now.cmd` shortcut `devlog init` writes to your Desktop (opens a window, shows the result, waits for a keypress so you actually see it).
+Publishing always runs locally — your session transcripts never leave this machine, so there's no "publish" button on the website. To publish on demand instead of waiting for the nightly schedule, either run `devlog publish` yourself, or double-click the publish-now shortcut `devlog init` writes to your Desktop: `Publish Devlog Now.cmd` on Windows, `Publish Devlog Now.command` on macOS (opens a window, shows the result, waits for a keypress so you actually see it).
 
 Wondering why a post says what it says? `--explain` prints which sources were scanned (and how many sessions each gave), how each project got its name (git remote, alias, home folder, folder name), how many commits were counted, which writer produced the text and why (or why it fell back to the template), and how many of your redaction patterns fired:
 
@@ -273,7 +290,7 @@ With `publish_empty_days = false`, a day with no activity is not committed (`ski
 
 GitHub Pages stays the public site. Each successful local `posts/` write also mirrors into a private Obsidian vault (archive note + Daily Note embed) when `obsidian_vault` is set. Vault notes are **never** git-managed and are **preserved by default** on hide/delete.
 
-`devlog init` (including `--defaults`) auto-detects the vault currently open in Obsidian (`%APPDATA%\obsidian\obsidian.json`). If none exists, it creates `~/Documents/DevLog` as a new vault (`.obsidian` + `DevLog/` + `Daily/`) and registers it in Obsidian when that config file is present. Interactive init pre-fills the detected or proposed path; blank the field to skip.
+`devlog init` (including `--defaults`) auto-detects the vault currently open in Obsidian (from Obsidian's `obsidian.json`; see [Platform differences](#platform-differences)). If none exists, it creates `~/Documents/DevLog` as a new vault (`.obsidian` + `DevLog/` + `Daily/`) and registers it in Obsidian when that config file is present. Interactive init pre-fills the detected or proposed path; answer `-` to skip the vault.
 
 ```toml
 obsidian_vault = "C:/Users/you/Documents/DevLog"   # filled by init
@@ -431,7 +448,15 @@ Public URLs after deploy (for a repo named `<repo>` under `<you>`; this project'
 - Log feed: `https://<you>.github.io/<repo>/log/`
 - Day post: `https://<you>.github.io/<repo>/log/YYYY-MM-DD.html`
 
-### Troubleshooting: the scheduled task silently stops running
+### Troubleshooting (macOS): the nightly publish doesn't run
+
+`devlog doctor` says whether the launchd job exists, is loaded, and still points at a working Python. Then look at `~/Library/Logs/devlog/publish.log`.
+
+- **Not loaded, or the Python moved** (e.g. after reinstalling devlog): `devlog init --schedule-only`.
+- **`Operation not permitted` in the log**: macOS privacy protection blocks background jobs from `~/Documents`, `~/Desktop` and iCloud Drive. If your repo or vault lives there, open **System Settings → Privacy & Security → Full Disk Access**, click **+**, press **⌘⇧G**, and add the Python from the plist's `ProgramArguments`. A vault elsewhere (e.g. `~/Obsidian`) needs nothing.
+- **Pushes fail with authentication errors**: the job uses the `PATH` from when you ran `devlog init`, so `git` and `gh` must be on it then. Run `gh auth login`, then `devlog init --schedule-only`.
+
+### Troubleshooting (Windows): the scheduled task silently stops running
 
 If `devlog init` registers the `DailyDevLogPublish` Windows Scheduled Task, `%LOCALAPPDATA%\devlog\publish.log` should gain a new entry every night. If posts stop appearing and the log stops growing, check whether the task still exists at all:
 
@@ -439,7 +464,7 @@ If `devlog init` registers the `DailyDevLogPublish` Windows Scheduled Task, `%LO
 schtasks /Query /TN DailyDevLogPublish /V /FO LIST
 ```
 
-`ERROR: The system cannot find the file specified` means the task was removed — Windows Task Scheduler does not keep a history of *why* by default, so there's usually no trail explaining it. Re-run `devlog init` (with `--schedule` if you're not doing the interactive prompts) to register it again.
+`ERROR: The system cannot find the file specified` means the task was removed — Windows Task Scheduler does not keep a history of *why* by default, so there's usually no trail explaining it. Run `devlog init --schedule-only` to register it again without redoing setup.
 
 `devlog init` also makes a best-effort attempt to turn on Task Scheduler's operational event log, so a future disappearance leaves a diagnosable trail next time. This needs admin elevation, which `devlog init` does not have by default, so it will usually print a note that it couldn't. To enable it yourself, open **PowerShell as Administrator** (a regular PowerShell window is not enough, even one you opened yourself) and run:
 
