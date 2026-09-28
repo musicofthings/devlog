@@ -7,7 +7,9 @@ Turns your local AI coding session history (Claude Code, Codex, Cursor, Grok, Co
 
 Transcripts never leave your machine unless you explicitly allow the (redacted) Claude API summarizer.
 
-**Repo:** https://github.com/musicofthings/devlog · **Site:** https://musicofthings.github.io/devlog/ · **Design notes and roadmap:** [`REVIEW_AND_ROADMAP.md`](REVIEW_AND_ROADMAP.md)
+**Repo:** https://github.com/musicofthings/devlog · **Example log:** https://musicofthings.github.io/devlog/log/ · **Design notes and roadmap:** [`REVIEW_AND_ROADMAP.md`](REVIEW_AND_ROADMAP.md)
+
+**Want your own?** Install the tool, create a site repo, and publish your first post: see [Start your own log](#start-your-own-log).
 
 ## What you get
 
@@ -27,19 +29,94 @@ Transcripts never leave your machine unless you explicitly allow the (redacted) 
 
 ## Install
 
-Requires Python 3.11+. The package is `daily-devlog` (the name `devlog` was taken on PyPI); the command is still `devlog`.
+Requires Python 3.11+ and git. The package is `daily-devlog` (the name `devlog` was taken on PyPI); the command is still `devlog`. Until it's on PyPI, install it straight from GitHub:
 
 ```bash
-pipx install "daily-devlog[mcp]"   # once released; [mcp] adds the agent-memory server
-# or from a clone:
+pipx install "daily-devlog[mcp] @ git+https://github.com/musicofthings/devlog"   # [mcp] adds the agent-memory server
+pipx reinstall daily-devlog                                                       # later: fetch the latest from GitHub
+# or, to work on devlog itself, from a clone:
 pip install -e ".[dev,mcp]"
-devlog init                        # config, Obsidian vault detection, nightly schedule
-devlog doctor                      # what's set up, what's missing, and how to fix it
 ```
+
+No pipx? `python -m pip install --user "daily-devlog[mcp] @ git+https://github.com/musicofthings/devlog"` works too.
 
 This installs a `devlog` command: `devlog run` (the default), `init`, `publish`, `hide`, `unhide`, `delete`, `obsidian`, `audit`, `deck`, `doctor`, and `mcp` (plus `devlog --version`). Everything below also works as `python main.py …`, which needs no install step.
 
 `devlog doctor` checks the config, which log sources have data, the site repository (remote, git identity, last publish, and an audit of the published posts), the GitHub CLI, the vault and its index, Ollama and Zotero when you use them, the MCP extra, and the nightly scheduled task. Problems exit 1, each with the command that fixes it. See [CHANGELOG.md](CHANGELOG.md) for what changed in each release.
+
+## Start your own log
+
+Your posts live in a GitHub repo of your own, separate from this tool, so updating devlog never touches them. The site repo only holds `posts/`, `docs/` and two workflows.
+
+**1. Create the site repo.** On GitHub, make a new empty repository (public, or private on a plan with Pages). Naming it `devlog` gives you `https://<you>.github.io/devlog/`; naming it `<you>.github.io` puts the log at the root of your user site. Then clone it:
+
+```bash
+git clone https://github.com/<you>/devlog.git
+cd devlog
+```
+
+**2. Add the site skeleton.** Two workflows (Pages deploy, and hide/delete from the live site), the stylesheet and script the log pages use, and a landing page that opens the log:
+
+```bash
+base=https://raw.githubusercontent.com/musicofthings/devlog/main
+mkdir -p .github/workflows docs/assets
+for f in .github/workflows/pages.yml .github/workflows/delete-post.yml \
+         docs/assets/theme.css docs/assets/theme.js; do
+  curl -fsSLo "$f" "$base/$f"
+done
+printf '<!doctype html>\n<meta charset="utf-8">\n<meta http-equiv="refresh" content="0; url=log/">\n<title>Dev log</title>\n<a href="log/">Read the log</a>\n' > docs/index.html
+git add . && git commit -m "Add devlog site skeleton" && git push
+```
+
+On Windows PowerShell:
+
+```powershell
+$base = "https://raw.githubusercontent.com/musicofthings/devlog/main"
+New-Item -ItemType Directory -Force .github/workflows, docs/assets | Out-Null
+foreach ($f in ".github/workflows/pages.yml", ".github/workflows/delete-post.yml",
+               "docs/assets/theme.css", "docs/assets/theme.js") {
+  Invoke-WebRequest "$base/$f" -OutFile $f -UseBasicParsing
+}
+Set-Content docs/index.html '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=log/"><title>Dev log</title><a href="log/">Read the log</a>'
+git add .; git commit -m "Add devlog site skeleton"; git push
+```
+
+Replace `docs/index.html` with your own landing page whenever you like; the log is always at `log/`.
+
+**3. Turn on Pages.** In the site repo: **Settings → Pages → Source: GitHub Actions**. The Pages run for the skeleton push skips its deploy (there's no log yet); your first published post deploys the site.
+
+**4. Configure devlog.** Run `init` from *inside* the site repo; it uses the current folder as `repo_path`:
+
+```bash
+devlog init      # sources, publish_mode, public_detail, Obsidian vault, nightly schedule (Windows)
+devlog doctor    # every check should be ok; each problem prints its fix
+```
+
+Start with `publish_mode = "review"` or `"manual"` until you've seen a few posts. Leave `public_detail` at `"projects"` (no prompt text) unless you want your prompts quoted. If your work involves identifiers such as MRNs or sample IDs, add `redact_presets = ["clinical"]` and your own `redact_patterns` to `~/.config/devlog/config.toml` (see [Privacy](#privacy-what-reaches-the-public-site)).
+
+**5. Publish your first day.**
+
+```bash
+devlog publish --dry-run --explain           # preview yesterday's post and why it says what it says
+devlog publish                               # review mode: writes posts/ + docs/log/, no push
+devlog publish --confirm --date YYYY-MM-DD   # review mode: commit and push once you're happy
+```
+
+In `manual` mode, commit and push `posts/`, `docs/` and `.devlog-status.json` yourself. In `auto` mode, `devlog publish` commits and pushes on its own. Your site is live at `https://<you>.github.io/<repo>/log/` a minute or two after the push.
+
+**6. Run it every night.** On Windows, `devlog init` registers the `DailyDevLogPublish` scheduled task (06:30 by default). On macOS or Linux, add a cron entry (`crontab -e`; cron's `PATH` is minimal, so use the full path that `which devlog` prints):
+
+```
+30 6 * * * cd /path/to/your/site-repo && $HOME/.local/bin/devlog publish >> $HOME/devlog-publish.log 2>&1
+```
+
+Then run `devlog audit` now and then to check nothing sensitive has reached the public site.
+
+**Optional:**
+- **Hide or delete posts from the live site.** Needs a fine-grained token; see [Hide or delete a published post](#hide-or-delete-a-published-post).
+- **Custom domain.** Put it in `docs/CNAME`; feed links follow it.
+- **Slash commands.** To drive devlog from Claude Code, Cursor, Codex or Grok inside your site repo, copy `.claude/commands/`, `.cursor/skills/`, `.agents/skills/` or `.grok/skills/` from this repo.
+- **Updating.** `pipx reinstall daily-devlog` pulls the latest tool from GitHub. Your site repo only changes when you publish; if a release changes the workflows or `docs/assets/`, re-run the download in step 2.
 
 ## Use
 
@@ -348,11 +425,11 @@ Hard delete leaves vault notes alone unless `obsidian_on_delete = remove` or you
 Enable GitHub Pages: repo **Settings → Pages → Source: GitHub Actions**
 (workflow: `.github/workflows/pages.yml` uploads `docs/` as the site root).
 
-Public URLs after deploy:
+Public URLs after deploy (for a repo named `<repo>` under `<you>`; this project's own log is at https://musicofthings.github.io/devlog/log/):
 
-- Landing: https://musicofthings.github.io/devlog/
-- Log feed: https://musicofthings.github.io/devlog/log/
-- Day post: https://musicofthings.github.io/devlog/log/YYYY-MM-DD.html
+- Landing: `https://<you>.github.io/<repo>/`
+- Log feed: `https://<you>.github.io/<repo>/log/`
+- Day post: `https://<you>.github.io/<repo>/log/YYYY-MM-DD.html`
 
 ### Troubleshooting: the scheduled task silently stops running
 

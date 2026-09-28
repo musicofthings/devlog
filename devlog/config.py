@@ -79,8 +79,16 @@ def default_config_path() -> Path:
 
 
 def default_repo_path() -> Path:
-    # Prefer the installed package's repo checkout when running from source.
-    return Path(__file__).resolve().parents[1]
+    """Site repo to publish into when the config doesn't name one.
+
+    From a source checkout (which can double as the site), that checkout.
+    Installed with pip/pipx, the package sits in site-packages, so use the
+    current directory: `devlog init` run inside your site repo picks it.
+    """
+    checkout = Path(__file__).resolve().parents[1]
+    if (checkout / "pyproject.toml").is_file():
+        return checkout
+    return Path.cwd()
 
 
 @dataclass
