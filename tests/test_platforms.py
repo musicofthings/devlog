@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import plistlib
+import shlex
 import subprocess
 import sys
 
@@ -132,7 +133,8 @@ def test_publish_now_command_is_an_executable_shell_script(tmp_path):
 def test_cron_line_for_linux(tmp_path):
     cfg = DevlogConfig(repo_path=str(tmp_path / "site"), schedule_time="18:00")
     line = scheduler.cron_line(cfg, python_exe="/usr/bin/python3")
-    assert line == (f"0 18 * * * cd {tmp_path / 'site'} && /usr/bin/python3 -m devlog "
+    site = shlex.quote(str(tmp_path / "site"))  # quoted when the path needs it
+    assert line == (f"0 18 * * * cd {site} && /usr/bin/python3 -m devlog "
                     "publish --date yesterday >> $HOME/devlog-publish.log 2>&1")
 
 
@@ -268,6 +270,7 @@ def test_doctor_windows_schedule():
 
 def test_warp_root_on_macos_finds_the_group_container(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
     fallback = str(tmp_path / ".local" / "share" / "warp" / "Warp").replace("\\", "/")
     assert default_warp_root("darwin") == fallback  # Warp not installed
