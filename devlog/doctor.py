@@ -81,6 +81,7 @@ def run_checks(
     ollama_models: Callable[[str], list[str] | None] = _ollama_models,
     os_name: str = sys.platform,
     now: datetime | None = None,
+    zotero_present: Callable[[], bool] | None = None,
 ) -> list[Check]:
     checks: list[Check] = []
     add = checks.append
@@ -160,10 +161,17 @@ def run_checks(
             else:
                 add(Check(OK, "audit", "published posts are clean"))
 
+    # Optional pieces that aren't installed are reported as off, not warned
+    # about, unless a setting depends on them.
+
     # ---------------------------------------------------------------- GitHub CLI
     if which("gh") is None:
-        add(Check(WARN, "gh", "GitHub CLI not installed",
-                  "needed for pull requests in day notes and open PRs on hubs"))
+        if cfg.publish_mode == "pr":
+            add(Check(FAIL, "gh", "GitHub CLI not installed; publish_mode = pr opens pull "
+                                  "requests with it", "install gh, then run: gh auth login"))
+        else:
+            add(Check(OK, "gh", "GitHub CLI not installed (optional: your pull requests "
+                                "in day notes and project hubs)"))
     else:
         try:
             status = run(["gh", "auth", "status"], Path.cwd())
@@ -176,7 +184,7 @@ def run_checks(
     # ---------------------------------------------------------------- vault
     vault = Path(cfg.obsidian_vault).expanduser() if cfg.obsidian_vault.strip() else None
     if vault is None:
-        add(Check(WARN, "vault", "obsidian_vault is not set", "run devlog init to add a vault"))
+        add(Check(OK, "vault", "no Obsidian vault (the private mirror is off)"))
     elif not vault.is_dir():
         add(Check(FAIL, "vault", f"{vault} does not exist", "create it or fix obsidian_vault"))
     else:
@@ -197,8 +205,9 @@ def run_checks(
             add(Check(OK, "mcp", "agent memory available: devlog mcp"
                                  + (" (write tools on)" if cfg.mcp_write else "")))
         except ImportError:
-            add(Check(WARN, "mcp", "MCP SDK not installed (devlog mcp won't start)",
-                      'pip install "daily-devlog[mcp]"'))
+            add(Check(WARN if cfg.mcp_write else OK, "mcp",
+                      "MCP extra not installed (optional: `devlog mcp` agent memory)",
+                      'pip install "daily-devlog[mcp]"' if cfg.mcp_write else ""))
 
     # ---------------------------------------------------------------- local services
     wants_ollama = (cfg.post_writer == "ollama" or cfg.related_backend == "ollama"
@@ -222,8 +231,13 @@ def run_checks(
             else:
                 add(Check(OK, "ollama", f"{cfg.ollama_url} with {', '.join(sorted(wanted))}"))
     if cfg.zotero_url.strip() and vault is not None:
+        from devlog.literature import zotero_installed
+
         if http_ok(cfg.zotero_url):
             add(Check(OK, "zotero", "Better BibTeX reachable; papers get [[@citekey]] links"))
+        elif not (zotero_present or zotero_installed)():
+            add(Check(OK, "zotero", "Zotero not installed (citekey links off); "
+                                    'zotero_url = "" skips the lookup entirely'))
         else:
             add(Check(WARN, "zotero", "Zotero/Better BibTeX not reachable",
                       'open Zotero to link citekeys, or set zotero_url = "" to stop trying'))

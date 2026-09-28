@@ -44,6 +44,9 @@ safer automation, and devlog learned about pipelines, papers, and slides.
   to their repo, `~` becomes `home`), plus `project_aliases`.
 - Slash commands generated for Claude Code, Cursor, Grok, and Codex from
   `commands/*.md`.
+- **Pre-filled `devlog init`.** Re-running init pre-fills every prompt with the
+  current config (Enter keeps it); a first run pre-fills the sources that have
+  log folders on this machine and asks only for their data folders.
 - **macOS scheduling.** `devlog init` registers a launchd agent for the nightly
   publish (runs a missed job at wake) and writes a `Publish Devlog Now.command`;
   on Linux it prints the cron line. `devlog init --schedule-only` re-registers
@@ -78,6 +81,10 @@ safer automation, and devlog learned about pipelines, papers, and slides.
   defaults to the current directory (a source checkout still uses itself).
 - `redact_patterns` that match the empty string are rejected; they redacted
   between every character.
+- Optional tools that aren't installed are skipped instead of warned about:
+  `devlog init` turns Zotero lookups off when Zotero isn't installed, and
+  `devlog doctor` reports a missing Zotero, GitHub CLI, MCP extra, or skipped
+  vault as off (still flagging `gh` for `publish_mode = "pr"`).
 - On macOS and Linux, `devlog init` wrote a Windows `.cmd` shortcut to the
   Desktop and offered to register a Windows Task Scheduler job.
 - `devlog init` prompts that said "blank to skip" (the Obsidian vault) or

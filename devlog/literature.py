@@ -14,13 +14,33 @@ paper added to Zotero later is picked up on the next refresh.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_BBT_URL = "http://localhost:23119/better-bibtex/json-rpc"
+
+
+def zotero_installed(platform: str | None = None) -> bool:
+    """Whether Zotero looks installed here (its data folder, or the app itself)."""
+    home = Path.home()
+    if (home / "Zotero").is_dir() or shutil.which("zotero"):  # ~/Zotero: default data dir
+        return True
+    platform = platform or sys.platform
+    if platform == "darwin":
+        apps = [Path("/Applications/Zotero.app"), home / "Applications" / "Zotero.app"]
+    elif platform == "win32":
+        roots = [os.environ.get(v) for v in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA")]
+        apps = [Path(r) / "Zotero" / "zotero.exe" for r in roots if r]
+        apps += [Path(r) / "Programs" / "Zotero" / "zotero.exe" for r in roots[2:] if r]
+    else:
+        apps = [Path("/opt/zotero"), Path("/usr/lib/zotero"), home / ".local" / "share" / "zotero"]
+    return any(app.exists() for app in apps)
 MAX_REFS_PER_PROJECT = 12
 
 # DOI: "10." + registrant + "/" + suffix; the suffix stops at whitespace, quotes,

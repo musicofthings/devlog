@@ -23,3 +23,5 @@ def _no_real_scheduling(monkeypatch, tmp_path_factory):
     for name in ("write_publish_now_shortcut", "write_publish_now_command"):
         monkeypatch.setattr(f"devlog.init_cmd.{name}",
                             lambda *a, **k: Path(desktop) / "shortcut")
+    # Whether the developer has Zotero installed must not change test results.
+    monkeypatch.setattr("devlog.init_cmd.zotero_installed", lambda: False)
